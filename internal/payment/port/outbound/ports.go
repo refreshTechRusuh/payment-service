@@ -11,6 +11,12 @@ type IPaymentRepository interface {
 	Create(ctx context.Context, tx pgx.Tx, p entity.Payment) error
 	GetByBookingID(ctx context.Context, bookingID string) (entity.Payment, error)
 	UpdateStatus(ctx context.Context, tx pgx.Tx, paymentID string, status entity.PaymentStatus) error
+	// UpdatePaymentStatusByBookingID update status payment terbaru milik bookingID.
+	UpdatePaymentStatusByBookingID(ctx context.Context, tx pgx.Tx, bookingID string, status entity.PaymentStatus) error
+
+	// UpdateStatusesForCallback update booking + payment status dalam satu transaksi (dikelola repo).
+	// Dipakai HandleCallback agar usecase tidak perlu pool.Begin langsung.
+	UpdateStatusesForCallback(ctx context.Context, bookingID string, internalStatus string) error
 
 	// GetBookingSnapshot membaca booking + items dari DB (payment-service punya akses read ke tabel booking).
 	GetBookingSnapshot(ctx context.Context, bookingID string) (entity.BookingSnapshot, error)

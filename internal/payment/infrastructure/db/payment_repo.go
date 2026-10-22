@@ -44,6 +44,35 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, payment
 	return err
 }
 
+// UpdatePaymentStatusByBookingID update status payment terbaru milik bookingID.
+func (r *PaymentRepository) UpdatePaymentStatusByBookingID(ctx context.Context, tx pgx.Tx, bookingID string, status entity.PaymentStatus) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE payment SET status=$2 WHERE booking_id=$1 AND status='PENDING'`,
+		bookingID, status)
+	return err
+}
+
+// UpdateStatusesForCallback update booking + payment status dalam satu transaksi.
+// Pool dikelola di sini agar usecase tidak perlu pool langsung (testable).
+func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, bookingID string, internalStatus string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	switch internalStatus {
+	case "SUCCESS":
+		r.UpdateBookingStatus(ctx, tx, bookingID, "PAID")                                         //nolint:errcheck
+		r.UpdatePaymentStatusByBookingID(ctx, tx, bookingID, entity.PaymentStatusSuccess)           //nolint:errcheck
+	case "FAILED", "EXPIRED":
+		r.UpdateBookingStatus(ctx, tx, bookingID, "EXPIRED")                                       //nolint:errcheck
+		r.UpdatePaymentStatusByBookingID(ctx, tx, bookingID, entity.PaymentStatusFailed)            //nolint:errcheck
+	}
+
+	return tx.Commit(ctx)
+}
+
 // GetBookingSnapshot membaca booking + items (payment-service mengakses tabel booking read-only).
 func (r *PaymentRepository) GetBookingSnapshot(ctx context.Context, bookingID string) (entity.BookingSnapshot, error) {
 	var snap entity.BookingSnapshot
