@@ -140,6 +140,13 @@ func (r *mockRepo) ListExpiredPending(_ context.Context, _ int) ([]entity.Paymen
 	return nil, nil
 }
 
+// CreatePaymentTx — stores payment without a real TX.
+func (r *mockRepo) CreatePaymentTx(_ context.Context, p entity.Payment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.payments[p.ID] = p
+	return nil
+}
 // ExpirePaymentTx — mark payment EXPIRED + booking EXPIRED in mock.
 func (r *mockRepo) ExpirePaymentTx(_ context.Context, paymentID, bookingID string) error {
 	r.mu.Lock()

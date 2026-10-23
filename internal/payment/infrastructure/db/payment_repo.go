@@ -193,3 +193,18 @@ func (r *PaymentRepository) HasActiveBooking(ctx context.Context, eventID string
 	}
 	return count > 0, nil
 }
+
+// CreatePaymentTx menyimpan payment baru dalam satu transaksi (dikelola di sini).
+// Agar usecase Charge tidak perlu pool.Begin langsung → fully testable tanpa DB.
+func (r *PaymentRepository) CreatePaymentTx(ctx context.Context, p entity.Payment) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("create payment tx begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := r.Create(ctx, tx, p); err != nil {
+		return fmt.Errorf("create payment: %w", err)
+	}
+	return tx.Commit(ctx)
+}

@@ -162,7 +162,7 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		return dto.ChargeResponse{}, apperror.Internal(fmt.Errorf("midtrans: %w", err))
 	}
 
-	// Simpan payment dalam transaksi
+	// Simpan payment via CreatePaymentTx (pool.Begin dikelola di repo — testable tanpa DB)
 	paymentID := uuid.New().String()
 	p := entity.Payment{
 		ID:          paymentID,
@@ -173,17 +173,7 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		SnapToken:   snapResult.SnapToken,
 		CreatedAt:   time.Now(),
 	}
-
-	tx, err := u.pool.Begin(ctx)
-	if err != nil {
-		return dto.ChargeResponse{}, apperror.Internal(err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	if err := u.repo.Create(ctx, tx, p); err != nil {
-		return dto.ChargeResponse{}, apperror.Internal(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := u.repo.CreatePaymentTx(ctx, p); err != nil {
 		return dto.ChargeResponse{}, apperror.Internal(err)
 	}
 

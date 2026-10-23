@@ -42,6 +42,10 @@ type IPaymentRepository interface {
 	// HasActiveBooking mengembalikan true bila masih ada booking HELD/PENDING payment untuk event ini.
 	// Dipakai sold-out detection: hanya mark sold-out bila stok=0 DAN tidak ada aktif.
 	HasActiveBooking(ctx context.Context, eventID string) (bool, error)
+
+	// CreatePaymentTx menyimpan payment baru dalam satu transaksi (dikelola repo).
+	// Agar usecase Charge tidak perlu pool.Begin langsung → fully testable.
+	CreatePaymentTx(ctx context.Context, p entity.Payment) error
 }
 
 type IPaymentGateway interface {
