@@ -27,3 +27,7 @@ func (k *KafkaProducer) PublishPaymentExpired(ctx context.Context, eventID strin
 func (k *KafkaProducer) PublishSlotReleased(ctx context.Context, eventID string, payload any) error {
 	return k.p.Publish(ctx, kafka.TopicSlotReleased, eventID, payload)
 }
+
+func (k *KafkaProducer) PublishEventSoldOut(ctx context.Context, eventID string, payload any) error {
+	return k.p.Publish(ctx, kafka.TopicEventSoldOut, eventID, payload)
+}

@@ -25,6 +25,23 @@ type IPaymentRepository interface {
 	// LogCallback menyimpan idempotency key webhook.
 	// Mengembalikan (sudah_ada bool, error).
 	LogCallback(ctx context.Context, idempotencyKey, bookingID, result string) (bool, error)
+
+	// ListExpiredPending mengembalikan payment PENDING yang booking TTL-nya sudah habis.
+	// Dipakai sweeper untuk mendeteksi pembayaran yang tidak diselesaikan tepat waktu.
+	// FOR UPDATE SKIP LOCKED agar sweeper multi-instance tidak konflik.
+	ListExpiredPending(ctx context.Context, limit int) ([]entity.Payment, error)
+
+	// ExpirePaymentTx menjalankan UPDATE payment+booking dalam satu tx (dikelola repo).
+	// Status payment → EXPIRED, status booking → EXPIRED.
+	ExpirePaymentTx(ctx context.Context, paymentID, bookingID string) error
+
+	// GetStockByEvent mengembalikan snapshot stok per kategori event.
+	// Dipakai sold-out detection setelah payment EXPIRED.
+	GetStockByEvent(ctx context.Context, eventID string) ([]entity.CategoryStock, error)
+
+	// HasActiveBooking mengembalikan true bila masih ada booking HELD/PENDING payment untuk event ini.
+	// Dipakai sold-out detection: hanya mark sold-out bila stok=0 DAN tidak ada aktif.
+	HasActiveBooking(ctx context.Context, eventID string) (bool, error)
 }
 
 type IPaymentGateway interface {
@@ -55,4 +72,7 @@ type IEventProducer interface {
 	PublishPaymentSucceeded(ctx context.Context, eventID string, payload any) error
 	PublishPaymentExpired(ctx context.Context, eventID string, payload any) error
 	PublishSlotReleased(ctx context.Context, eventID string, payload any) error
+	// PublishEventSoldOut mempublish event.sold_out ke Kafka.
+	// Dipanggil setelah sold-out detection mendeteksi event benar-benar habis.
+	PublishEventSoldOut(ctx context.Context, eventID string, payload any) error
 }

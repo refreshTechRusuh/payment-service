@@ -135,6 +135,36 @@ func (r *mockRepo) LogCallback(_ context.Context, key, _, _ string) (bool, error
 	return false, nil
 }
 
+// ListExpiredPending — returns empty in tests (sweeper not tested here).
+func (r *mockRepo) ListExpiredPending(_ context.Context, _ int) ([]entity.Payment, error) {
+	return nil, nil
+}
+
+// ExpirePaymentTx — mark payment EXPIRED + booking EXPIRED in mock.
+func (r *mockRepo) ExpirePaymentTx(_ context.Context, paymentID, bookingID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p, ok := r.payments[paymentID]; ok {
+		p.Status = entity.PaymentStatusExpired
+		r.payments[paymentID] = p
+	}
+	if snap, ok := r.bookings[bookingID]; ok {
+		snap.Status = "EXPIRED"
+		r.bookings[bookingID] = snap
+	}
+	return nil
+}
+
+// GetStockByEvent — returns empty (no stock table in mock).
+func (r *mockRepo) GetStockByEvent(_ context.Context, _ string) ([]entity.CategoryStock, error) {
+	return nil, nil
+}
+
+// HasActiveBooking — returns false (no active bookings after expire in mock).
+func (r *mockRepo) HasActiveBooking(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
 // mockGateway
 type mockGateway struct {
 	shouldFail bool
@@ -206,6 +236,9 @@ func (p *mockProducer) PublishPaymentExpired(_ context.Context, _ string, _ any)
 }
 func (p *mockProducer) PublishSlotReleased(_ context.Context, _ string, _ any) error {
 	p.pub("slot.released"); return nil
+}
+func (p *mockProducer) PublishEventSoldOut(_ context.Context, _ string, _ any) error {
+	p.pub("event.sold_out"); return nil
 }
 
 // ============================================================
@@ -423,6 +456,67 @@ func TestIdempoten_Concurrent(t *testing.T) {
 	// payment.succeeded harus TEPAT 1 kali
 	assert.Equal(t, 1, prod.count("payment.succeeded"), "concurrent callback → tepat 1 publish")
 	assert.Equal(t, 1, prod.count("slot.released"), "concurrent callback → tepat 1 slot.released")
+}
+
+// ============================================================
+// Sweeper tests
+// ============================================================
+
+// TestSweeper_ExpiresPendingPayment — sweeper mendeteksi payment PENDING yang TTL habis.
+func TestSweeper_ExpiresPendingPayment(t *testing.T) {
+	expired := expiresIn(-1 * time.Minute) // TTL habis 1 menit lalu
+	snap := entity.BookingSnapshot{
+		ID:               "bkg-sweep",
+		EventID:          "evt-001",
+		Email:            "user@test.com",
+		Status:           "HELD",
+		PaymentExpiresAt: expired,
+		Items:            []entity.BookingItemSnapshot{{CategoryID: "cat-vip", NIK: "1234567890123456", PriceSnapshot: 500000}},
+	}
+
+	repo := &sweeperMockRepo{
+		mockRepo: newMockRepo(snap),
+		expiredPayments: []entity.Payment{
+			{ID: "pay-001", BookingID: "bkg-sweep", Status: entity.PaymentStatusPending},
+		},
+	}
+	prod := newMockProducer()
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, "", slog.Default())
+
+	// Panggil SweepOnce (synchronous, tanpa ticker)
+	uc.SweepOnce(context.Background())
+
+	// Beri sedikit waktu untuk goroutine publish
+	time.Sleep(50 * time.Millisecond)
+
+	// payment.expired + slot.released harus dipublish
+	assert.Equal(t, 1, prod.count("payment.expired"), "sweeper harus publish payment.expired")
+	assert.Equal(t, 1, prod.count("slot.released"), "sweeper harus publish slot.released")
+
+	// booking status harus EXPIRED
+	updatedSnap, _ := repo.GetBookingSnapshot(context.Background(), "bkg-sweep")
+	assert.Equal(t, "EXPIRED", updatedSnap.Status, "booking harus EXPIRED setelah sweep")
+}
+
+// sweeperMockRepo extends mockRepo with a fixed ListExpiredPending.
+type sweeperMockRepo struct {
+	*mockRepo
+	expiredPayments []entity.Payment
+	called          bool
+}
+
+func (r *sweeperMockRepo) ListExpiredPending(_ context.Context, _ int) ([]entity.Payment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.called {
+		return nil, nil // 2nd call returns nothing
+	}
+	r.called = true
+	return r.expiredPayments, nil
+}
+
+func (r *sweeperMockRepo) ExpirePaymentTx(_ context.Context, paymentID, bookingID string) error {
+	return r.mockRepo.ExpirePaymentTx(context.Background(), paymentID, bookingID)
 }
 
 // ============================================================

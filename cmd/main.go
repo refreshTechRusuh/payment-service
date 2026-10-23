@@ -24,27 +24,38 @@ func main() {
 	defer cancel()
 
 	pool, err := pkgdb.NewPool(rootCtx, cfg.DB)
-	if err != nil { slog.Error("db connect", "err", err); os.Exit(1) }
+	if err != nil {
+		slog.Error("db connect", "err", err)
+		os.Exit(1)
+	}
 
 	producer := kafka.NewProducer(cfg.Kafka, slog.Default())
-	mux, closeDeps, _ := delivery.New(rootCtx, cfg, pool, producer)
+	mux, uc, closeDeps := delivery.New(rootCtx, cfg, pool, producer)
 	defer closeDeps()
+
+	// Start payment TTL sweeper (goroutine background)
+	uc.StartSweeper(rootCtx)
 
 	handler := middleware.Chain(mux, middleware.TransactionID, middleware.OptionalAuth(cfg.JWT.AccessTokenSecret))
 	srv := &http.Server{
-		Addr: fmt.Sprintf(":%d", cfg.App.Port), ReadHeaderTimeout: 5 * time.Second, Handler: handler,
+		Addr:              fmt.Sprintf(":%d", cfg.App.Port),
+		ReadHeaderTimeout: 5 * time.Second,
+		Handler:           handler,
 	}
 	go func() {
 		slog.Info("payment-service listening", "port", cfg.App.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server error", "err", err); os.Exit(1)
+			slog.Error("server error", "err", err)
+			os.Exit(1)
 		}
 	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	cancel()
+
+	cancel() // stop sweeper
 	shutCtx, cancelShut := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShut()
-	srv.Shutdown(shutCtx)
+	srv.Shutdown(shutCtx) //nolint:errcheck
 }

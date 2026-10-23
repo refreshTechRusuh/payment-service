@@ -44,3 +44,11 @@ type BookingItemSnapshot struct {
 	NIK           string
 	PriceSnapshot int64
 }
+
+// CategoryStock adalah snapshot stok satu kategori tiket.
+// Dipakai sold-out detection di sweeper.
+type CategoryStock struct {
+	CategoryID string
+	Name       string
+	Available  int
+}

@@ -32,6 +32,15 @@ func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Pro
 	return &Handler{usecase: uc}
 }
 
+// NewWiredHandlerWithUC sama dengan NewWiredHandler tapi juga mengembalikan PaymentUsecase
+// agar delivery layer bisa start sweeper.
+func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) (*Handler, *usecase.PaymentUsecase) {
+	repo := db.NewPaymentRepository(pool)
+	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, slog.Default())
+	ep := event.NewKafkaProducer(producer, slog.Default())
+	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, slog.Default())
+	return &Handler{usecase: uc}, uc
+}
 func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
 	withAccessToken := func(next http.HandlerFunc) http.Handler {
 		return middleware.Chain(http.HandlerFunc(next), middleware.RequireAccessToken(accessTokenSecret))
