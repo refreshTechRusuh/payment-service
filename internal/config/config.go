@@ -129,16 +129,10 @@ func Load() (*Config, error) {
 			FailOpen:  getEnvBool("DUKCAPIL_FAIL_OPEN", true),
 		},
 		Midtrans: MidtransConfig{
-			ServerKey: mustEnv("MIDTRANS_SERVER_KEY"),
+			ServerKey: getEnv("MIDTRANS_SERVER_KEY", ""),   // opsional di lokal (sandbox)
 			Env:       getEnv("MIDTRANS_ENV", "sandbox"),
 		},
-		Email: EmailConfig{
-			Host:     getEnv("EMAIL_HOST", "smtp.gmail.com"),
-			Port:     getEnvInt("EMAIL_PORT", 587),
-			Username: mustEnv("EMAIL_USERNAME"),
-			Password: mustEnv("EMAIL_PASSWORD"),
-			From:     getEnv("EMAIL_FROM", "Rusuh Booking Tiket <noreply@gmail.com>"),
-		},
+		// Email tidak dipakai payment-service (hanya worker-service yang kirim email)
 		SSE: SSEConfig{
 			HeartbeatSeconds: getEnvInt("SSE_HEARTBEAT_SECONDS", 30),
 		},
