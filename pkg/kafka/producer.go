@@ -121,6 +121,7 @@ type PaymentSucceededEvent struct {
 	PaymentID string             `json:"paymentId"`
 	BookingID string             `json:"bookingId"`
 	EventID   string             `json:"eventId"`
+	Email     string             `json:"email"`   // tujuan email e-tiket (worker service)
 	Method    string             `json:"method"`
 	Items     []BookingItemEvent `json:"items"`
 }
@@ -129,6 +130,7 @@ type PaymentExpiredEvent struct {
 	PaymentID string `json:"paymentId"`
 	BookingID string `json:"bookingId"`
 	EventID   string `json:"eventId"`
+	Email     string `json:"email"`   // tujuan email pembatalan (worker service)
 }
 
 type EventSoldOutEvent struct {

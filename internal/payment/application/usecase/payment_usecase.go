@@ -254,6 +254,7 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 		u.producer.PublishPaymentSucceeded(ctx, snap.EventID, kafka.PaymentSucceededEvent{
 			BookingID: bookingID,
 			EventID:   snap.EventID,
+			Email:     snap.Email, // tujuan email e-tiket
 			Items:     itemEvents,
 		})
 		// slot.released (PAID) → Queue Service promosi antrian
@@ -264,7 +265,9 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 	case "FAILED", "EXPIRED":
 		// payment.expired → Notification Worker (email #3)
 		u.producer.PublishPaymentExpired(ctx, snap.EventID, kafka.PaymentExpiredEvent{
-			BookingID: bookingID, EventID: snap.EventID,
+			BookingID: bookingID,
+			EventID:   snap.EventID,
+			Email:     snap.Email, // tujuan email pembatalan
 		})
 		// slot.released (PAYMENT_TTL) → Queue Service promosi antrian
 		u.producer.PublishSlotReleased(ctx, snap.EventID, kafka.SlotReleasedEvent{
