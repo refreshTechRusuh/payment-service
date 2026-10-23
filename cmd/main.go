@@ -36,7 +36,8 @@ func main() {
 	// Start payment TTL sweeper (goroutine background)
 	uc.StartSweeper(rootCtx)
 
-	handler := middleware.Chain(mux, middleware.TransactionID, middleware.OptionalAuth(cfg.JWT.AccessTokenSecret))
+	// handler dari delivery.New sudah di-wrap RequestLogger.
+	handler := middleware.Chain(mux, middleware.OptionalAuth(cfg.JWT.AccessTokenSecret))
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.App.Port),
 		ReadHeaderTimeout: 5 * time.Second,
