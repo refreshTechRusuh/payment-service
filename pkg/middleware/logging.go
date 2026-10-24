@@ -29,6 +29,19 @@ func (rw *responseWriter) WriteHeader(code int) {
 	}
 }
 
+// Flush meneruskan ke underlying ResponseWriter agar SSE (http.Flusher) tetap
+// berfungsi lewat middleware ini.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap mengekspos ResponseWriter asli untuk http.ResponseController (Go 1.20+).
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
 // RequestLogger adalah middleware yang mencatat setiap inbound HTTP request:
 //   - method, path, status, duration
 //   - X-Transaction-Id (buat baru bila tidak ada di request)
