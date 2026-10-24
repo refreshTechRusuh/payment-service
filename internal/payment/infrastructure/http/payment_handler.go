@@ -25,9 +25,10 @@ var validate = validator.New()
 type Handler struct{ usecase inbound.IPaymentUsecase }
 
 func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) *Handler {
-	repo := db.NewPaymentRepository(pool)
-	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, slog.Default())
-	ep := event.NewKafkaProducer(producer, slog.Default())
+	log := slog.Default()
+	repo := db.NewPaymentRepository(pool, log)
+	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, log)
+	ep := event.NewKafkaProducer(producer, log)
 	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, slog.Default())
 	return &Handler{usecase: uc}
 }
@@ -35,10 +36,11 @@ func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Pro
 // NewWiredHandlerWithUC sama dengan NewWiredHandler tapi juga mengembalikan PaymentUsecase
 // agar delivery layer bisa start sweeper.
 func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) (*Handler, *usecase.PaymentUsecase) {
-	repo := db.NewPaymentRepository(pool)
-	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, slog.Default())
-	ep := event.NewKafkaProducer(producer, slog.Default())
-	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, slog.Default())
+	log := slog.Default()
+	repo := db.NewPaymentRepository(pool, log)
+	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, log)
+	ep := event.NewKafkaProducer(producer, log)
+	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, log)
 	return &Handler{usecase: uc}, uc
 }
 func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
