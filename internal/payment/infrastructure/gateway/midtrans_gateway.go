@@ -52,7 +52,7 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 	}
 
 	start := time.Now()
-	g.log.InfoContext(ctx, "midtrans snap create request",
+	g.log.InfoContext(ctx, "midtrans snap request",
 		slog.String("orderID", req.OrderID),
 		slog.Int64("grossAmount", req.GrossAmount),
 		slog.Int("itemCount", len(items)),
@@ -60,7 +60,7 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 
 	resp, err := g.snapClient.CreateTransaction(snapReq)
 	if err != nil {
-		g.log.ErrorContext(ctx, "midtrans snap create failed",
+		g.log.ErrorContext(ctx, "midtrans snap failed",
 			slog.String("orderID", req.OrderID),
 			slog.String("duration", time.Since(start).String()),
 			slog.String("error", err.Error()),
@@ -68,7 +68,7 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 		return outbound.SnapResult{}, fmt.Errorf("midtrans gateway: %w", err)
 	}
 
-	g.log.InfoContext(ctx, "midtrans snap create ok",
+	g.log.InfoContext(ctx, "midtrans snap response",
 		slog.String("orderID", req.OrderID),
 		slog.String("snapToken", resp.Token[:min(8, len(resp.Token))]+"..."),
 		slog.String("duration", time.Since(start).String()),

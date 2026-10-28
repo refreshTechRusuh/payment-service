@@ -25,9 +25,10 @@ var validate = validator.New()
 type Handler struct{ usecase inbound.IPaymentUsecase }
 
 func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) *Handler {
-	repo := db.NewPaymentRepository(pool)
-	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, slog.Default())
-	ep := event.NewKafkaProducer(producer, slog.Default())
+	log := slog.Default()
+	repo := db.NewPaymentRepository(pool, log)
+	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, log)
+	ep := event.NewKafkaProducer(producer, log)
 	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, slog.Default())
 	return &Handler{usecase: uc}
 }
@@ -35,10 +36,11 @@ func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Pro
 // NewWiredHandlerWithUC sama dengan NewWiredHandler tapi juga mengembalikan PaymentUsecase
 // agar delivery layer bisa start sweeper.
 func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) (*Handler, *usecase.PaymentUsecase) {
-	repo := db.NewPaymentRepository(pool)
-	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, slog.Default())
-	ep := event.NewKafkaProducer(producer, slog.Default())
-	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, slog.Default())
+	log := slog.Default()
+	repo := db.NewPaymentRepository(pool, log)
+	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, log)
+	ep := event.NewKafkaProducer(producer, log)
+	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, log)
 	return &Handler{usecase: uc}, uc
 }
 func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
@@ -46,10 +48,10 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
 		return middleware.Chain(http.HandlerFunc(next), middleware.RequireAccessToken(accessTokenSecret))
 	}
 
-	mux.Handle("GET /api/v1/bookings/{bookingId}/payment", withAccessToken(h.GetBookingPayment))
-	mux.Handle("POST /api/v1/payments/charge", withAccessToken(h.Charge))
+	mux.Handle("GET /api/payment/v1/booking/{bookingId}", withAccessToken(h.GetBookingPayment))
+	mux.Handle("POST /api/payment/v1/charge", withAccessToken(h.Charge))
 	// Callback: no auth middleware (dipanggil Midtrans, diverifikasi via signature_key)
-	mux.HandleFunc("POST /api/v1/payments/callback", h.Callback)
+	mux.HandleFunc("POST /api/payment/v1/callback", h.Callback)
 
 	mux.HandleFunc("GET /sys/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`))

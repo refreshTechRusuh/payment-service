@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/joho/godotenv"
+	"github.com/refreshTechRusuh/payment-service/pkg/logctx"
 )
 
 // Config adalah konfigurasi seluruh aplikasi dibaca dari env.
@@ -158,7 +159,7 @@ func SetupLogger(cfg LogConfig) {
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	}
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(slog.New(logctx.NewContextHandler(handler)))
 }
 
 // DSN mengembalikan PostgreSQL connection string untuk pgx.
