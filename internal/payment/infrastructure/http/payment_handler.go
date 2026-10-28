@@ -48,10 +48,10 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
 		return middleware.Chain(http.HandlerFunc(next), middleware.RequireAccessToken(accessTokenSecret))
 	}
 
-	mux.Handle("GET /api/v1/bookings/{bookingId}/payment", withAccessToken(h.GetBookingPayment))
-	mux.Handle("POST /api/v1/payments/charge", withAccessToken(h.Charge))
+	mux.Handle("GET /api/payment/v1/booking/{bookingId}", withAccessToken(h.GetBookingPayment))
+	mux.Handle("POST /api/payment/v1/charge", withAccessToken(h.Charge))
 	// Callback: no auth middleware (dipanggil Midtrans, diverifikasi via signature_key)
-	mux.HandleFunc("POST /api/v1/payments/callback", h.Callback)
+	mux.HandleFunc("POST /api/payment/v1/callback", h.Callback)
 
 	mux.HandleFunc("GET /sys/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`))
