@@ -58,6 +58,22 @@ type SnapRequest struct {
 	GrossAmount int64
 	Email       string
 	Items       []SnapItem
+	// Expiry mengisi field `expiry` di Midtrans Snap API request.
+	// Kalau nil, Midtrans pakai setting default dari dashboard.
+	// Selalu isi agar expiry konsisten dengan payment_expires_at di DB.
+	Expiry *ExpiryDetails
+}
+
+// ExpiryDetails mendefinisikan field `expiry` di Midtrans Snap create transaction request.
+// Referensi: https://docs.midtrans.com/reference/snap-api-create-transaction
+type ExpiryDetails struct {
+	// StartTime format: "yyyy-MM-dd HH:mm:ss Z", contoh: "2026-10-30 14:34:15 +0700"
+	// Selalu isi eksplisit agar tidak bergantung pada clock server Midtrans.
+	StartTime string `json:"start_time"`
+	// Unit adalah satuan durasi: "seconds", "minutes", "hours", atau "days"
+	Unit string `json:"unit"`
+	// Duration adalah jumlah unit sejak StartTime
+	Duration int `json:"duration"`
 }
 
 type SnapItem struct {
