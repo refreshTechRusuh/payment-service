@@ -106,7 +106,6 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 	if remaining <= 0 {
 		return dto.ChargeResponse{}, apperror.BookingExpired()
 	}
-
 	// Enforce server-side: metode harus punya waktu cukup
 	methodValid := false
 	for _, m := range defaultMethods {
@@ -151,13 +150,25 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		})
 	}
 
-	// Panggil Midtrans Snap
-	snapResult, err := u.gateway.CreateSnapToken(ctx, outbound.SnapRequest{
+	// Panggil Midtrans Snap dengan expiry eksplisit agar konsisten dengan payment_expires_at di DB.
+	now := time.Now()
+	snapReq := outbound.SnapRequest{
 		OrderID:     req.BookingID, // bookingId = order_id → idempoten di Midtrans juga
 		GrossAmount: total,
 		Email:       snap.Email,
 		Items:       snapItems,
-	})
+		Expiry: &outbound.ExpiryDetails{
+			// Format Midtrans: "yyyy-MM-dd HH:mm:ss Z" dengan offset tanpa titik dua (+0700 bukan +07:00)
+			StartTime: now.Format("2006-01-02 15:04:05 -0700"),
+			Unit:      "seconds",
+			Duration:  remaining,
+		},
+	}
+	u.log.InfoContext(ctx, "midtrans snap expiry set",
+		slog.Int("remaining_secs", remaining),
+	)
+
+	snapResult, err := u.gateway.CreateSnapToken(ctx, snapReq)
 	if err != nil {
 		return dto.ChargeResponse{}, apperror.Internal(fmt.Errorf("midtrans: %w", err))
 	}
@@ -242,9 +253,10 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 	itemEvents := make([]kafka.BookingItemEvent, 0, len(snap.Items))
 	for _, item := range snap.Items {
 		itemEvents = append(itemEvents, kafka.BookingItemEvent{
-			CategoryID: item.CategoryID,
-			NIK:        item.NIK,
-			Price:      item.PriceSnapshot,
+			CategoryID:   item.CategoryID,
+			CategoryName: item.CategoryName,
+			NIK:          item.NIK,
+			Price:        item.PriceSnapshot,
 		})
 	}
 
@@ -254,6 +266,7 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 		u.producer.PublishPaymentSucceeded(ctx, snap.EventID, kafka.PaymentSucceededEvent{
 			BookingID: bookingID,
 			EventID:   snap.EventID,
+			EventName: snap.EventName,
 			Email:     snap.Email, // tujuan email e-tiket
 			Items:     itemEvents,
 		})

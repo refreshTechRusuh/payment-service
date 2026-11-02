@@ -51,6 +51,15 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 		Items:          &items,
 	}
 
+	// Inject expiry jika ada — sinkronkan dengan payment_expires_at di DB.
+	if req.Expiry != nil {
+		snapReq.Expiry = &snap.ExpiryDetails{
+			StartTime: req.Expiry.StartTime,
+			Unit:      req.Expiry.Unit,
+			Duration:  int64(req.Expiry.Duration),
+		}
+	}
+
 	start := time.Now()
 	g.log.InfoContext(ctx, "midtrans snap request",
 		slog.String("orderID", req.OrderID),

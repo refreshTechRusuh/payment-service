@@ -144,11 +144,19 @@ func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, booki
 // GetBookingSnapshot membaca booking + items (payment-service mengakses tabel booking read-only).
 func (r *PaymentRepository) GetBookingSnapshot(ctx context.Context, bookingID string) (entity.BookingSnapshot, error) {
 	start := time.Now()
-	const qSnapshot = `SELECT id, event_id, email, status, payment_expires_at FROM booking WHERE id=$1`
-	const qItems = `SELECT category_id, nik, price_snapshot FROM booking_item WHERE booking_id=$1`
+	const qSnapshot = `
+		SELECT b.id, b.event_id, e.name, b.email, b.status, b.payment_expires_at
+		FROM booking b
+		JOIN event e ON e.id = b.event_id
+		WHERE b.id=$1`
+	const qItems = `
+		SELECT bi.category_id, tc.name, bi.nik, bi.price_snapshot
+		FROM booking_item bi
+		JOIN ticket_category tc ON tc.id = bi.category_id
+		WHERE bi.booking_id=$1`
 	var snap entity.BookingSnapshot
 	err := r.pool.QueryRow(ctx, qSnapshot, bookingID).
-		Scan(&snap.ID, &snap.EventID, &snap.Email, &snap.Status, &snap.PaymentExpiresAt)
+		Scan(&snap.ID, &snap.EventID, &snap.EventName, &snap.Email, &snap.Status, &snap.PaymentExpiresAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			dbLog(ctx, r.log, "payment.get_booking_snapshot", qSnapshot, start, err, slog.String("bookingId", bookingID))
@@ -164,7 +172,7 @@ func (r *PaymentRepository) GetBookingSnapshot(ctx context.Context, bookingID st
 	defer rows.Close()
 	for rows.Next() {
 		var item entity.BookingItemSnapshot
-		rows.Scan(&item.CategoryID, &item.NIK, &item.PriceSnapshot)
+		rows.Scan(&item.CategoryID, &item.CategoryName, &item.NIK, &item.PriceSnapshot)
 		snap.Items = append(snap.Items, item)
 	}
 	dbLog(ctx, r.log, "payment.get_booking_snapshot", qSnapshot, start, nil,

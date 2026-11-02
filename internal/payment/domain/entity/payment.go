@@ -33,14 +33,16 @@ type PaymentMethod struct {
 type BookingSnapshot struct {
 	ID               string
 	EventID          string
+	EventName        string     // nama event, untuk Kafka event payload
 	Email            string
-	Status           string        // HELD|PAID|EXPIRED|CANCELLED
+	Status           string     // HELD|PAID|EXPIRED|CANCELLED
 	PaymentExpiresAt *time.Time
 	Items            []BookingItemSnapshot
 }
 
 type BookingItemSnapshot struct {
 	CategoryID    string
+	CategoryName  string // nama kategori tiket, untuk Kafka event payload
 	NIK           string
 	PriceSnapshot int64
 }
