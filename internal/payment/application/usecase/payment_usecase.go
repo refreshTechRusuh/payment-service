@@ -253,9 +253,10 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 	itemEvents := make([]kafka.BookingItemEvent, 0, len(snap.Items))
 	for _, item := range snap.Items {
 		itemEvents = append(itemEvents, kafka.BookingItemEvent{
-			CategoryID: item.CategoryID,
-			NIK:        item.NIK,
-			Price:      item.PriceSnapshot,
+			CategoryID:   item.CategoryID,
+			CategoryName: item.CategoryName,
+			NIK:          item.NIK,
+			Price:        item.PriceSnapshot,
 		})
 	}
 
@@ -265,6 +266,7 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 		u.producer.PublishPaymentSucceeded(ctx, snap.EventID, kafka.PaymentSucceededEvent{
 			BookingID: bookingID,
 			EventID:   snap.EventID,
+			EventName: snap.EventName,
 			Email:     snap.Email, // tujuan email e-tiket
 			Items:     itemEvents,
 		})

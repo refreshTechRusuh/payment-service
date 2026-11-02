@@ -107,9 +107,10 @@ type BookingCreatedEvent struct {
 }
 
 type BookingItemEvent struct {
-	CategoryID string `json:"categoryId"`
-	NIK        string `json:"nik"`
-	Price      int64  `json:"price"`
+	CategoryID   string `json:"categoryId"`
+	CategoryName string `json:"categoryName"` // nama kategori untuk e-tiket
+	NIK          string `json:"nik"`
+	Price        int64  `json:"price"`
 }
 
 type StockChangedEvent struct {
@@ -130,7 +131,8 @@ type PaymentSucceededEvent struct {
 	PaymentID string             `json:"paymentId"`
 	BookingID string             `json:"bookingId"`
 	EventID   string             `json:"eventId"`
-	Email     string             `json:"email"`   // tujuan email e-tiket (worker service)
+	EventName string             `json:"eventName"` // nama event untuk e-tiket
+	Email     string             `json:"email"`     // tujuan email e-tiket (worker service)
 	Method    string             `json:"method"`
 	Items     []BookingItemEvent `json:"items"`
 }
