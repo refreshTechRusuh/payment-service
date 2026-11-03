@@ -15,8 +15,8 @@ type IPaymentRepository interface {
 	UpdatePaymentStatusByBookingID(ctx context.Context, tx pgx.Tx, bookingID string, status entity.PaymentStatus) error
 
 	// UpdateStatusesForCallback update booking + payment status dalam satu transaksi (dikelola repo).
-	// Dipakai HandleCallback agar usecase tidak perlu pool.Begin langsung.
-	UpdateStatusesForCallback(ctx context.Context, bookingID string, internalStatus string) error
+	// method adalah payment_type dari Midtrans callback, disimpan ke kolom method di payment.
+	UpdateStatusesForCallback(ctx context.Context, bookingID string, internalStatus string, method string) error
 
 	// GetBookingSnapshot membaca booking + items dari DB (payment-service punya akses read ke tabel booking).
 	GetBookingSnapshot(ctx context.Context, bookingID string) (entity.BookingSnapshot, error)
@@ -86,6 +86,16 @@ type SnapItem struct {
 type SnapResult struct {
 	SnapToken   string
 	RedirectURL string
+}
+
+// IRedirectStore menyimpan dan mengambil redirectUrl Midtrans Snap per bookingId.
+// Disimpan di Redis/Valkey dengan TTL = payment_expires_at sehingga URL otomatis expired
+// bersamaan dengan booking TTL.
+type IRedirectStore interface {
+	// SetRedirectURL menyimpan redirectUrl dengan TTL dalam detik.
+	SetRedirectURL(ctx context.Context, bookingID, redirectURL string, ttlSeconds int) error
+	// GetRedirectURL mengambil redirectUrl; returns "" jika tidak ada atau sudah expired.
+	GetRedirectURL(ctx context.Context, bookingID string) (string, error)
 }
 
 type IEventProducer interface {
