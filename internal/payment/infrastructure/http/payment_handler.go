@@ -44,13 +44,13 @@ func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kaf
 	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, redirectStore, cfg.Midtrans.ServerKey, log)
 	return &Handler{usecase: uc}, uc
 }
-func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
-	withAccessToken := func(next http.HandlerFunc) http.Handler {
-		return middleware.Chain(http.HandlerFunc(next), middleware.RequireAccessToken(accessTokenSecret))
+func RegisterRoutes(mux *http.ServeMux, h *Handler, cfg *config.Config) {
+	withPaymentToken := func(next http.HandlerFunc) http.Handler {
+		return middleware.Chain(http.HandlerFunc(next), middleware.RequirePaymentToken(cfg.JWT.PaymentTokenSecret))
 	}
 
-	mux.Handle("GET /api/payment/v1/booking/{bookingId}", withAccessToken(h.GetBookingPayment))
-	mux.Handle("POST /api/payment/v1/charge", withAccessToken(h.Charge))
+	mux.Handle("GET /api/payment/v1/booking/{bookingId}", withPaymentToken(h.GetBookingPayment))
+	mux.Handle("POST /api/payment/v1/charge", withPaymentToken(h.Charge))
 	// Callback: no auth middleware (dipanggil Midtrans, diverifikasi via signature_key)
 	mux.HandleFunc("POST /api/payment/v1/callback", h.Callback)
 
@@ -60,7 +60,15 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
 }
 
 func (h *Handler) GetBookingPayment(w http.ResponseWriter, r *http.Request) {
-	result, err := h.usecase.GetBookingPayment(r.Context(), r.PathValue("bookingId"))
+	bookingID := r.PathValue("bookingId")
+	// Wajib cek: claims.bookingId == bookingId di path agar token booking A tidak bisa dipakai untuk booking B.
+	if claims, ok := middleware.GetPaymentTokenClaims(r.Context()); ok {
+		if claims.BookingID != bookingID {
+			http.Error(w, `{"status":"403","message":"Payment Token tidak cocok dengan booking ini","data":{}}`, http.StatusForbidden)
+			return
+		}
+	}
+	result, err := h.usecase.GetBookingPayment(r.Context(), bookingID)
 	if err != nil { apinizer.WriteError(w, err); return }
 	apinizer.Success(w, "OK", result)
 }
@@ -72,6 +80,13 @@ func (h *Handler) Charge(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validate.Struct(req); err != nil {
 		apinizer.WriteError(w, fmt.Errorf("validation: %s", err.Error())); return
+	}
+	// Wajib cek: claims.bookingId == req.bookingId agar token booking A tidak bisa dipakai untuk booking B.
+	if claims, ok := middleware.GetPaymentTokenClaims(r.Context()); ok {
+		if claims.BookingID != req.BookingID {
+			http.Error(w, `{"status":"403","message":"Payment Token tidak cocok dengan booking ini","data":{}}`, http.StatusForbidden)
+			return
+		}
 	}
 	result, err := h.usecase.Charge(r.Context(), req)
 	if err != nil { apinizer.WriteError(w, err); return }

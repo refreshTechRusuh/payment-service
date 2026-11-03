@@ -29,7 +29,7 @@ func New(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *ka
 	}
 
 	h, uc := payhttp.NewWiredHandlerWithUC(pool, cfg, producer, valkeyClient)
-	payhttp.RegisterRoutes(mux, h, cfg.JWT.AccessTokenSecret)
+	payhttp.RegisterRoutes(mux, h, cfg)
 
 	// Wrap seluruh mux dengan request logger.
 	logged := middleware.RequestLogger(slog.Default())(mux)

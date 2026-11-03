@@ -60,7 +60,8 @@ type KafkaConfig struct {
 }
 
 type JWTConfig struct {
-	AccessTokenSecret string
+	AccessTokenSecret  string
+	PaymentTokenSecret string
 }
 
 type DukcapilConfig struct {
@@ -122,7 +123,8 @@ func Load() (*Config, error) {
 			TLS:      getEnvBool("KAFKA_TLS", false),
 		},
 		JWT: JWTConfig{
-			AccessTokenSecret: mustEnv("ACCESS_TOKEN_SECRET"),
+			AccessTokenSecret:  getEnv("ACCESS_TOKEN_SECRET", ""),
+			PaymentTokenSecret: mustEnv("PAYMENT_TOKEN_SECRET"),
 		},
 		Dukcapil: DukcapilConfig{
 			BaseURL:   getEnv("DUKCAPIL_BASE_URL", "http://localhost:8085"),
