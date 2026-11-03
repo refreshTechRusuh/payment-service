@@ -99,7 +99,7 @@ func (r *mockRepo) UpdateBookingStatus(_ context.Context, _ pgx.Tx, bookingID st
 }
 
 // UpdateStatusesForCallback — mock: just update in-memory
-func (r *mockRepo) UpdateStatusesForCallback(_ context.Context, bookingID string, internalStatus string) error {
+func (r *mockRepo) UpdateStatusesForCallback(_ context.Context, bookingID string, internalStatus string, _ string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	snap := r.bookings[bookingID]
@@ -282,7 +282,7 @@ func defaultSnap(status string, expiresAt *time.Time) entity.BookingSnapshot {
 // of individual usecase methods that don't touch pool.Begin.
 // ============================================================
 
-// TestGetBookingPayment_EnabledFlags verifies that method enabled flags are computed correctly.
+// TestGetBookingPayment_EnabledFlags verifies remaining seconds and basic response fields.
 func TestGetBookingPayment_EnabledFlags(t *testing.T) {
 	snap := defaultSnap("HELD", expiresIn(90*time.Second)) // 90s remaining
 	repo := newMockRepo(snap)
@@ -292,15 +292,9 @@ func TestGetBookingPayment_EnabledFlags(t *testing.T) {
 
 	resp, err := uc.GetBookingPayment(context.Background(), "bkg-001")
 	require.NoError(t, err)
-	assert.Equal(t, 2, len(snap.Items)*1) // 2 items → total 1_000_000
 	assert.Equal(t, int64(1000000), resp.Total)
-
-	// BCA VA: estSeconds=180 → 90 < 180 → disabled
-	assert.False(t, findMethod(resp.Methods, "bca_va").Enabled, "bca_va harus disabled (90s < 180s)")
-	// QRIS: estSeconds=60 → 90 >= 60 → enabled
-	assert.True(t, findMethod(resp.Methods, "qris").Enabled, "qris harus enabled (90s >= 60s)")
-	// GoPay: estSeconds=45 → 90 >= 45 → enabled
-	assert.True(t, findMethod(resp.Methods, "gopay").Enabled, "gopay harus enabled (90s >= 45s)")
+	assert.Equal(t, "bkg-001", resp.BookingID)
+	// Methods sudah tidak ada di response — Midtrans Snap handle sendiri
 }
 
 func TestGetBookingPayment_AllDisabled_WhenExpired(t *testing.T) {
@@ -310,9 +304,7 @@ func TestGetBookingPayment_AllDisabled_WhenExpired(t *testing.T) {
 
 	resp, err := uc.GetBookingPayment(context.Background(), "bkg-001")
 	require.NoError(t, err)
-	for _, m := range resp.Methods {
-		assert.False(t, m.Enabled, "semua metode harus disabled bila expired")
-	}
+	assert.Equal(t, 0, resp.RemainingSeconds)
 	assert.True(t, resp.BackDisabled)
 }
 
@@ -488,7 +480,7 @@ func TestSweeper_ExpiresPendingPayment(t *testing.T) {
 		},
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
 
 	// Panggil SweepOnce (synchronous, tanpa ticker)
 	uc.SweepOnce(context.Background())
@@ -530,21 +522,11 @@ func (r *sweeperMockRepo) ExpirePaymentTx(_ context.Context, paymentID, bookingI
 // Helpers
 // ============================================================
 
-func findMethod(methods []dto.PaymentMethod, code string) dto.PaymentMethod {
-	for _, m := range methods {
-		if m.Code == code {
-			return m
-		}
-	}
-	return dto.PaymentMethod{}
-}
-
-// buildUC membuat PaymentUsecase dengan mock repo/producer, tanpa pool (Charge tidak ditest di sini).
-// HandleCallback dan GetBookingPayment tidak pakai pool langsung → dapat nil pool.
+// buildUC membuat PaymentUsecase dengan mock repo/producer, tanpa pool.
 func buildUC(repo *mockRepo, prod *mockProducer, midtransKey string) *usecase.PaymentUsecase {
 	return usecase.NewPaymentUsecase(
-		nil, // pool nil — HandleCallback/GetBookingPayment tidak pakai pool di test
-		repo, &noopGateway{}, prod, midtransKey, slog.Default(),
+		nil,
+		repo, &noopGateway{}, prod, nil, midtransKey, slog.Default(),
 	)
 }
 

@@ -18,22 +18,31 @@ import (
 
 const backDisabledThreshold = 30 // seconds
 
+// paymentMethod adalah konfigurasi internal metode bayar untuk time-enforcement.
+// Tidak dikembalikan di API — hanya dipakai untuk validasi durasi di Charge.
+type paymentMethod struct {
+	Code       string
+	EstSeconds int
+}
+
 // defaultMethods adalah konfigurasi metode bayar + estimasi durasi settle.
-// Nilai estSeconds diukur dari sandbox Midtrans — sesuaikan setelah benchmark.
-var defaultMethods = []dto.PaymentMethod{
-	{Code: "bca_va", Name: "BCA Virtual Account", EstSeconds: 180},
-	{Code: "qris", Name: "QRIS", EstSeconds: 60},
-	{Code: "gopay", Name: "GoPay", EstSeconds: 45},
+// Dipakai hanya untuk time-enforcement di Charge — Methods tidak lagi dikembalikan di API
+// karena Midtrans Snap menampilkan pilihan metode di checkout page-nya sendiri.
+var defaultMethods = []paymentMethod{
+	{Code: "bca_va", EstSeconds: 180},
+	{Code: "qris", EstSeconds: 60},
+	{Code: "gopay", EstSeconds: 45},
 }
 
 // PaymentUsecase mengimplementasikan inbound.IPaymentUsecase.
 type PaymentUsecase struct {
-	pool        *pgxpool.Pool
-	repo        outbound.IPaymentRepository
-	gateway     outbound.IPaymentGateway
-	producer    outbound.IEventProducer
-	midtransKey string
-	log         *slog.Logger
+	pool          *pgxpool.Pool
+	repo          outbound.IPaymentRepository
+	gateway       outbound.IPaymentGateway
+	producer      outbound.IEventProducer
+	redirectStore outbound.IRedirectStore
+	midtransKey   string
+	log           *slog.Logger
 }
 
 func NewPaymentUsecase(
@@ -41,14 +50,25 @@ func NewPaymentUsecase(
 	repo outbound.IPaymentRepository,
 	gateway outbound.IPaymentGateway,
 	producer outbound.IEventProducer,
+	redirectStore outbound.IRedirectStore,
 	midtransServerKey string,
 	log *slog.Logger,
 ) *PaymentUsecase {
-	return &PaymentUsecase{pool: pool, repo: repo, gateway: gateway, producer: producer, midtransKey: midtransServerKey, log: log}
+	return &PaymentUsecase{
+		pool:          pool,
+		repo:          repo,
+		gateway:       gateway,
+		producer:      producer,
+		redirectStore: redirectStore,
+		midtransKey:   midtransServerKey,
+		log:           log,
+	}
 }
 
-// GetBookingPayment mengembalikan detail payment page dengan enabled flag dinamis.
-// Req 7.1, 7.5 — enabled = false bila remainingSeconds < estSeconds.
+// GetBookingPayment mengembalikan detail payment page.
+// Methods dihapus — Midtrans Snap menampilkan pilihan metode sendiri.
+// RedirectURL diambil dari Redis agar FE bisa redirect ulang tanpa Charge baru.
+// Req 7.1, 7.5.
 func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string) (dto.BookingPaymentDetailResponse, error) {
 	snap, err := u.repo.GetBookingSnapshot(ctx, bookingID)
 	if err != nil {
@@ -62,36 +82,31 @@ func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string
 		total += item.PriceSnapshot
 	}
 
-	methods := make([]dto.PaymentMethod, len(defaultMethods))
-	for i, m := range defaultMethods {
-		methods[i] = dto.PaymentMethod{
-			Code:       m.Code,
-			Name:       m.Name,
-			EstSeconds: m.EstSeconds,
-			Enabled:    remaining >= m.EstSeconds,
-		}
-	}
-
-	// Jika sudah ada payment sebelumnya, sertakan snapToken-nya
-	var snapToken string
+	// Ambil snapToken dan redirectUrl dari payment PENDING yang sudah ada (jika ada).
+	var snapToken, redirectURL string
 	if existing, err := u.repo.GetByBookingID(ctx, bookingID); err == nil {
 		snapToken = existing.SnapToken
+	}
+	if u.redirectStore != nil {
+		redirectURL, _ = u.redirectStore.GetRedirectURL(ctx, bookingID)
 	}
 
 	return dto.BookingPaymentDetailResponse{
 		BookingID:        bookingID,
 		Total:            total,
-		Methods:          methods,
 		SnapToken:        snapToken,
+		RedirectURL:      redirectURL,
 		RemainingSeconds: remaining,
 		Status:           snap.Status,
 		BackDisabled:     remaining < backDisabledThreshold,
 	}, nil
 }
 
-// Charge membuat transaksi Midtrans dan menyimpan payment.
+// Charge membuat transaksi Midtrans Snap dan menyimpan payment.
 // Idempoten: jika sudah ada payment PENDING untuk bookingId ini, return yang lama.
-// Req 7.4 (booking HELD + TTL), Req 7.6 (enforce server-side method time), Req 8.1.
+// Method dihapus dari request — Midtrans Snap menampilkan semua pilihan, payment_type
+// diterima dari callback dan disimpan saat HandleCallback.
+// Req 7.4 (booking HELD + TTL), Req 8.1.
 func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto.ChargeResponse, error) {
 	snap, err := u.repo.GetBookingSnapshot(ctx, req.BookingID)
 	if err != nil {
@@ -106,21 +121,6 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 	if remaining <= 0 {
 		return dto.ChargeResponse{}, apperror.BookingExpired()
 	}
-	// Enforce server-side: metode harus punya waktu cukup
-	methodValid := false
-	for _, m := range defaultMethods {
-		if m.Code == req.Method {
-			methodValid = true
-			if remaining < m.EstSeconds {
-				return dto.ChargeResponse{}, apperror.MethodTimeInsufficient()
-			}
-			break
-		}
-	}
-	if !methodValid {
-		return dto.ChargeResponse{}, apperror.New(apperror.ErrValidation,
-			fmt.Sprintf("metode pembayaran '%s' tidak dikenal", req.Method))
-	}
 
 	// Idempotency: cek apakah sudah ada payment PENDING untuk booking ini
 	if existing, err := u.repo.GetByBookingID(ctx, req.BookingID); err == nil &&
@@ -128,11 +128,16 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		u.log.InfoContext(ctx, "charge idempoten: payment PENDING sudah ada",
 			slog.String("bookingId", req.BookingID),
 			slog.String("paymentId", existing.ID))
+		// Ambil redirectUrl dari Redis jika ada
+		redirectURL := ""
+		if u.redirectStore != nil {
+			redirectURL, _ = u.redirectStore.GetRedirectURL(ctx, req.BookingID)
+		}
 		return dto.ChargeResponse{
 			PaymentID:   existing.ID,
 			Status:      string(existing.Status),
 			SnapToken:   existing.SnapToken,
-			Method:      existing.Method,
+			RedirectURL: redirectURL,
 		}, nil
 	}
 
@@ -158,7 +163,6 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		Email:       snap.Email,
 		Items:       snapItems,
 		Expiry: &outbound.ExpiryDetails{
-			// Format Midtrans: "yyyy-MM-dd HH:mm:ss Z" dengan offset tanpa titik dua (+0700 bukan +07:00)
 			StartTime: now.Format("2006-01-02 15:04:05 -0700"),
 			Unit:      "seconds",
 			Duration:  remaining,
@@ -173,12 +177,12 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		return dto.ChargeResponse{}, apperror.Internal(fmt.Errorf("midtrans: %w", err))
 	}
 
-	// Simpan payment via CreatePaymentTx (pool.Begin dikelola di repo — testable tanpa DB)
+	// Simpan payment via CreatePaymentTx. Method kosong dulu, diisi dari callback payment_type.
 	paymentID := uuid.New().String()
 	p := entity.Payment{
 		ID:          paymentID,
 		BookingID:   req.BookingID,
-		Method:      req.Method,
+		Method:      "", // diisi dari Midtrans callback payment_type
 		Status:      entity.PaymentStatusPending,
 		ProviderRef: req.BookingID, // order_id Midtrans = bookingId
 		SnapToken:   snapResult.SnapToken,
@@ -188,12 +192,21 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		return dto.ChargeResponse{}, apperror.Internal(err)
 	}
 
+	// Simpan redirectUrl ke Redis dengan TTL = remaining seconds.
+	if u.redirectStore != nil && snapResult.RedirectURL != "" {
+		if err := u.redirectStore.SetRedirectURL(ctx, req.BookingID, snapResult.RedirectURL, remaining); err != nil {
+			// Non-fatal: log saja, jangan gagalkan Charge
+			u.log.WarnContext(ctx, "gagal simpan redirectUrl ke Redis",
+				slog.String("bookingId", req.BookingID),
+				slog.String("err", err.Error()))
+		}
+	}
+
 	return dto.ChargeResponse{
 		PaymentID:   paymentID,
 		Status:      "PENDING",
 		SnapToken:   snapResult.SnapToken,
 		RedirectURL: snapResult.RedirectURL,
-		Method:      req.Method,
 	}, nil
 }
 
@@ -237,8 +250,8 @@ func (u *PaymentUsecase) HandleCallback(ctx context.Context, cb dto.MidtransCall
 		return err
 	}
 
-	// 6. Update status via repo (repo manages tx internally)
-	if err := u.repo.UpdateStatusesForCallback(ctx, cb.OrderID, internalStatus); err != nil {
+	// 6. Update status via repo (repo manages tx internally), sekaligus simpan payment_type sebagai method
+	if err := u.repo.UpdateStatusesForCallback(ctx, cb.OrderID, internalStatus, cb.PaymentType); err != nil {
 		return apperror.Internal(err)
 	}
 

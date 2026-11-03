@@ -113,7 +113,8 @@ func (r *PaymentRepository) UpdatePaymentStatusByBookingID(ctx context.Context, 
 }
 
 // UpdateStatusesForCallback update booking + payment status dalam satu transaksi.
-func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, bookingID string, internalStatus string) error {
+// method adalah payment_type dari Midtrans callback — disimpan ke kolom method.
+func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, bookingID, internalStatus, method string) error {
 	start := time.Now()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -121,6 +122,12 @@ func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, booki
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Update method dari payment_type callback (bisa kosong jika Midtrans tidak kirim)
+	if method != "" {
+		const qMethod = `UPDATE payment SET method=$2 WHERE booking_id=$1 AND status='PENDING'`
+		tx.Exec(ctx, qMethod, bookingID, method) //nolint:errcheck
+	}
 
 	switch internalStatus {
 	case "SUCCESS":
@@ -137,7 +144,8 @@ func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, booki
 	}
 	dbLog(ctx, r.log, "payment.callback_tx", "TX callback", start, nil,
 		slog.String("bookingId", bookingID),
-		slog.String("internalStatus", internalStatus))
+		slog.String("internalStatus", internalStatus),
+		slog.String("method", method))
 	return nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/refreshTechRusuh/payment-service/internal/payment/application/usecase"
 	"github.com/refreshTechRusuh/payment-service/pkg/kafka"
 	"github.com/refreshTechRusuh/payment-service/pkg/middleware"
+	pkgvalkey "github.com/refreshTechRusuh/payment-service/pkg/valkey"
 )
 
 // New mewiring semua dependency payment-service dan mengembalikan:
@@ -19,12 +20,26 @@ import (
 //   - closeFn: fungsi cleanup
 func New(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *kafka.Producer) (http.Handler, *usecase.PaymentUsecase, func()) {
 	mux := http.NewServeMux()
-	h, uc := payhttp.NewWiredHandlerWithUC(pool, cfg, producer)
+
+	// Init Valkey client untuk menyimpan redirectUrl (non-fatal jika gagal)
+	valkeyClient, err := pkgvalkey.NewClient(cfg.Valkey)
+	if err != nil {
+		slog.Warn("valkey: tidak bisa konek, redirectUrl tidak akan disimpan", slog.String("err", err.Error()))
+		valkeyClient = nil
+	}
+
+	h, uc := payhttp.NewWiredHandlerWithUC(pool, cfg, producer, valkeyClient)
 	payhttp.RegisterRoutes(mux, h, cfg.JWT.AccessTokenSecret)
 
 	// Wrap seluruh mux dengan request logger.
 	logged := middleware.RequestLogger(slog.Default())(mux)
 
-	closeFn := func() { pool.Close(); producer.Close() }
+	closeFn := func() {
+		pool.Close()
+		producer.Close()
+		if valkeyClient != nil {
+			valkeyClient.Close()
+		}
+	}
 	return logged, uc, closeFn
 }

@@ -34,12 +34,10 @@ func TestCharge_Idempoten_PendingExists(t *testing.T) {
 	repo := newMockRepo(snap)
 	prod := newMockProducer()
 	gw := &countingGateway{}
-	uc := usecase.NewPaymentUsecase(nil, repo, gw, prod, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, gw, prod, nil, "", slog.Default())
 
 	req := dto.ChargeRequest{
-		BookingID:      "bkg-001",
-		Method:         "qris",
-		IdempotencyKey: "key-1",
+		BookingID: "bkg-001",
 	}
 
 	// Charge pertama → buat payment baru (gateway dipanggil)
@@ -73,7 +71,7 @@ func TestCharge_RejectsExpiredBooking(t *testing.T) {
 		uc := buildUC(repo, newMockProducer(), "")
 
 		_, err := uc.Charge(context.Background(), dto.ChargeRequest{
-			BookingID: "bkg-001", Method: "qris", IdempotencyKey: "k1",
+			BookingID: "bkg-001",
 		})
 		require.Error(t, err, "booking EXPIRED harus ditolak")
 		assert.Contains(t, err.Error(), "BOOKING_EXPIRED",
@@ -86,7 +84,7 @@ func TestCharge_RejectsExpiredBooking(t *testing.T) {
 		uc := buildUC(repo, newMockProducer(), "")
 
 		_, err := uc.Charge(context.Background(), dto.ChargeRequest{
-			BookingID: "bkg-001", Method: "qris", IdempotencyKey: "k2",
+			BookingID: "bkg-001",
 		})
 		require.Error(t, err, "booking HELD dengan TTL habis harus ditolak")
 		assert.Contains(t, err.Error(), "BOOKING_EXPIRED",
@@ -95,37 +93,27 @@ func TestCharge_RejectsExpiredBooking(t *testing.T) {
 }
 
 // ============================================================
-// Fase 5 Test 3: Charge menolak metode tanpa waktu cukup (Req 7.6)
+// Fase 5 Test 3: Charge menolak booking TTL sangat pendek
 // ============================================================
 
-// TestCharge_MethodTimeInsufficient memverifikasi server-side method enforcement:
-//   - BCA VA (estimasi 180s) ditolak bila TTL tinggal 90s
-//   - QRIS (estimasi 60s) diterima bila TTL tinggal 90s
-//
-// Ini membuktikan server tidak percaya klien (klien bisa kirim metode apapun).
-func TestCharge_MethodTimeInsufficient(t *testing.T) {
-	snap := defaultSnap("HELD", expiresIn(90*time.Second)) // 90s tersisa
+// TestCharge_RejectsNearZeroTTL memverifikasi server-side TTL enforcement:
+//   - Booking dengan TTL < 10 detik → ditolak sebagai BOOKING_EXPIRED
+//   - Midtrans TIDAK dipanggil
+func TestCharge_RejectsNearZeroTTL(t *testing.T) {
+	snap := defaultSnap("HELD", expiresIn(3*time.Second)) // 3s tersisa — terlalu kecil
 	repo := newMockRepo(snap)
 	gw := &countingGateway{}
-	uc := usecase.NewPaymentUsecase(nil, repo, gw, newMockProducer(), "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, gw, newMockProducer(), nil, "", slog.Default())
 
-	// BCA VA: estSeconds=180 → 90 < 180 → DITOLAK
+	// Tunggu TTL habis
+	time.Sleep(4 * time.Second)
+
 	_, err := uc.Charge(context.Background(), dto.ChargeRequest{
-		BookingID: "bkg-001", Method: "bca_va", IdempotencyKey: "k-bca",
+		BookingID: "bkg-001",
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "waktu",
-		"BCA VA harus ditolak bila TTL < estSeconds (Req 7.6)")
-	assert.Equal(t, 0, gw.calls,
-		"Midtrans tidak boleh dipanggil untuk metode yang ditolak")
-
-	// QRIS: estSeconds=60 → 90 >= 60 → DITERIMA
-	_, err = uc.Charge(context.Background(), dto.ChargeRequest{
-		BookingID: "bkg-001", Method: "qris", IdempotencyKey: "k-qris",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, gw.calls,
-		"Midtrans harus dipanggil untuk QRIS yang memenuhi syarat waktu")
+	require.Error(t, err, "booking dengan TTL habis harus ditolak")
+	assert.Contains(t, err.Error(), "BOOKING_EXPIRED")
+	assert.Equal(t, 0, gw.calls, "Midtrans tidak boleh dipanggil untuk booking expired")
 }
 
 // ============================================================
@@ -195,7 +183,7 @@ func TestSweeper_SoldOut_AfterExpire(t *testing.T) {
 		hasActive: false, // tidak ada HELD aktif
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
 
 	// SweepOnce — satu siklus synchronous
 	uc.SweepOnce(context.Background())

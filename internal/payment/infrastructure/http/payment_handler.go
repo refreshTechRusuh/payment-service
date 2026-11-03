@@ -18,29 +18,30 @@ import (
 	"github.com/refreshTechRusuh/payment-service/pkg/apinizer"
 	"github.com/refreshTechRusuh/payment-service/pkg/kafka"
 	"github.com/refreshTechRusuh/payment-service/pkg/middleware"
+	vk "github.com/valkey-io/valkey-go"
 )
 
 var validate = validator.New()
 
 type Handler struct{ usecase inbound.IPaymentUsecase }
 
-func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) *Handler {
-	log := slog.Default()
-	repo := db.NewPaymentRepository(pool, log)
-	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, log)
-	ep := event.NewKafkaProducer(producer, log)
-	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, slog.Default())
-	return &Handler{usecase: uc}
+func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer, valkeyClient vk.Client) *Handler {
+	h, _ := NewWiredHandlerWithUC(pool, cfg, producer, valkeyClient)
+	return h
 }
 
 // NewWiredHandlerWithUC sama dengan NewWiredHandler tapi juga mengembalikan PaymentUsecase
 // agar delivery layer bisa start sweeper.
-func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer) (*Handler, *usecase.PaymentUsecase) {
+func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer, valkeyClient vk.Client) (*Handler, *usecase.PaymentUsecase) {
 	log := slog.Default()
 	repo := db.NewPaymentRepository(pool, log)
 	gw := gateway.NewMidtransGateway(cfg.Midtrans.ServerKey, cfg.Midtrans.Env, log)
 	ep := event.NewKafkaProducer(producer, log)
-	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, cfg.Midtrans.ServerKey, log)
+	var redirectStore *db.RedirectStore
+	if valkeyClient != nil {
+		redirectStore = db.NewRedirectStore(valkeyClient)
+	}
+	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, redirectStore, cfg.Midtrans.ServerKey, log)
 	return &Handler{usecase: uc}, uc
 }
 func RegisterRoutes(mux *http.ServeMux, h *Handler, accessTokenSecret string) {
