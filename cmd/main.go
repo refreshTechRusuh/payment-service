@@ -15,6 +15,7 @@ import (
 	pkgdb "github.com/refreshTechRusuh/payment-service/pkg/db"
 	"github.com/refreshTechRusuh/payment-service/pkg/kafka"
 	"github.com/refreshTechRusuh/payment-service/pkg/middleware"
+	pkgotel "github.com/refreshTechRusuh/payment-service/pkg/otel"
 )
 
 func main() {
@@ -22,6 +23,18 @@ func main() {
 	config.SetupLogger(cfg.Log)
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Setup OpenTelemetry TracerProvider.
+	otelShutdown, err := pkgotel.SetupTracerProvider(rootCtx, "payment-service", "1.0.0")
+	if err != nil {
+		slog.Warn("otel: failed to setup tracer provider, tracing disabled", "err", err)
+	} else {
+		defer func() {
+			shutCtx, cancelOtel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelOtel()
+			_ = otelShutdown(shutCtx)
+		}()
+	}
 
 	pool, err := pkgdb.NewPool(rootCtx, cfg.DB)
 	if err != nil {
