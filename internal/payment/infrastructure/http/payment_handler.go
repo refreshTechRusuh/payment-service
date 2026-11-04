@@ -25,6 +25,28 @@ var validate = validator.New()
 
 type Handler struct{ usecase inbound.IPaymentUsecase }
 
+// NewHandlerWithUsecase membuat Handler dengan usecase yang sudah di-inject.
+// Dipakai di unit test untuk inject mock usecase tanpa butuh DB/Kafka/Midtrans.
+func NewHandlerWithUsecase(uc inbound.IPaymentUsecase) *Handler {
+	return &Handler{usecase: uc}
+}
+
+// RegisterRoutesWithSecret mendaftarkan routes dengan payment token secret eksplisit.
+// Dipakai di unit test agar secret bisa dikontrol tanpa config lengkap.
+func RegisterRoutesWithSecret(mux *http.ServeMux, h *Handler, paymentTokenSecret string) {
+	withPaymentToken := func(next http.HandlerFunc) http.Handler {
+		return middleware.Chain(http.HandlerFunc(next), middleware.RequirePaymentToken(paymentTokenSecret))
+	}
+
+	mux.Handle("GET /api/payment/v1/booking/{bookingId}", withPaymentToken(h.GetBookingPayment))
+	mux.Handle("POST /api/payment/v1/charge", withPaymentToken(h.Charge))
+	mux.HandleFunc("POST /api/payment/v1/callback", h.Callback)
+
+	mux.HandleFunc("GET /sys/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`))
+	})
+}
+
 func NewWiredHandler(pool *pgxpool.Pool, cfg *config.Config, producer *kafka.Producer, valkeyClient vk.Client) *Handler {
 	h, _ := NewWiredHandlerWithUC(pool, cfg, producer, valkeyClient)
 	return h
