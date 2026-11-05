@@ -27,6 +27,12 @@ func NewMidtransGateway(serverKey, env string, log *slog.Logger) *MidtransGatewa
 	return &MidtransGateway{snapClient: c, log: log}
 }
 
+// NewMidtransGatewayWithSnapClient digunakan untuk testing — menerima snap.Client yang sudah dikonfigurasi
+// (termasuk custom HttpClient untuk mock HTTP response tanpa koneksi jaringan).
+func NewMidtransGatewayWithSnapClient(c snap.Client, log *slog.Logger) *MidtransGateway {
+	return &MidtransGateway{snapClient: c, log: log}
+}
+
 func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.SnapRequest) (outbound.SnapResult, error) {
 	items := make([]midtrans.ItemDetails, 0, len(req.Items))
 	for _, it := range req.Items {

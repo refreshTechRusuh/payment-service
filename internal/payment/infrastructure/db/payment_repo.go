@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/refreshTechRusuh/payment-service/internal/payment/domain/entity"
 	"github.com/refreshTechRusuh/payment-service/pkg/apperror"
 )
@@ -49,11 +48,11 @@ func dbLog(ctx context.Context, log *slog.Logger, op, sql string, start time.Tim
 }
 
 type PaymentRepository struct {
-	pool *pgxpool.Pool
+	pool IPool
 	log  *slog.Logger
 }
 
-func NewPaymentRepository(pool *pgxpool.Pool, log *slog.Logger) *PaymentRepository {
+func NewPaymentRepository(pool IPool, log *slog.Logger) *PaymentRepository {
 	return &PaymentRepository{pool: pool, log: log}
 }
 
