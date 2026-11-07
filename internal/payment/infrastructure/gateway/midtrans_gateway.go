@@ -44,7 +44,7 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 			ID:    it.ID,
 			Name:  name,
 			Price: it.Price,
-			Qty:   int32(it.Quantity),
+			Qty:   int32(it.Quantity), // #nosec G115 -- ticket quantity bounded in DB (< 10000)
 		})
 	}
 

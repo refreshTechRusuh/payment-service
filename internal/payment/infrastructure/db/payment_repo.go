@@ -125,16 +125,16 @@ func (r *PaymentRepository) UpdateStatusesForCallback(ctx context.Context, booki
 	// Update method dari payment_type callback (bisa kosong jika Midtrans tidak kirim)
 	if method != "" {
 		const qMethod = `UPDATE payment SET method=$2 WHERE booking_id=$1 AND status='PENDING'`
-		tx.Exec(ctx, qMethod, bookingID, method) //nolint:errcheck
+		tx.Exec(ctx, qMethod, bookingID, method) // #nosec G104 -- fire-and-forget, intentional //nolint:errcheck
 	}
 
 	switch internalStatus {
 	case "SUCCESS":
-		r.UpdateBookingStatus(ctx, tx, bookingID, "PAID")                                         //nolint:errcheck
-		r.UpdatePaymentStatusByBookingID(ctx, tx, bookingID, entity.PaymentStatusSuccess)           //nolint:errcheck
+		r.UpdateBookingStatus(ctx, tx, bookingID, "PAID")                                         // #nosec G104 //nolint:errcheck
+		r.UpdatePaymentStatusByBookingID(ctx, tx, bookingID, entity.PaymentStatusSuccess)           // #nosec G104 //nolint:errcheck
 	case "FAILED", "EXPIRED":
-		r.UpdateBookingStatus(ctx, tx, bookingID, "EXPIRED")                                       //nolint:errcheck
-		r.UpdatePaymentStatusByBookingID(ctx, tx, bookingID, entity.PaymentStatusFailed)            //nolint:errcheck
+		r.UpdateBookingStatus(ctx, tx, bookingID, "EXPIRED")                                       // #nosec G104 //nolint:errcheck
+		r.UpdatePaymentStatusByBookingID(ctx, tx, bookingID, entity.PaymentStatusFailed)            // #nosec G104 //nolint:errcheck
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -179,7 +179,9 @@ func (r *PaymentRepository) GetBookingSnapshot(ctx context.Context, bookingID st
 	defer rows.Close()
 	for rows.Next() {
 		var item entity.BookingItemSnapshot
-		rows.Scan(&item.CategoryID, &item.CategoryName, &item.NIK, &item.PriceSnapshot)
+		if err := rows.Scan(&item.CategoryID, &item.CategoryName, &item.NIK, &item.PriceSnapshot); err != nil {
+			continue // skip malformed row
+		}
 		snap.Items = append(snap.Items, item)
 	}
 	dbLog(ctx, r.log, "payment.get_booking_snapshot", qSnapshot, start, nil,

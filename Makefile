@@ -8,3 +8,7 @@ mod-tidy:
 	go mod tidy
 golint:
 	golangci-lint run --timeout 5m
+
+scan:
+	@echo "Running security scan"
+	gosec ./...
