@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v3"
 	"github.com/refreshTechRusuh/payment-service/internal/payment/domain/entity"
 	"github.com/refreshTechRusuh/payment-service/internal/payment/infrastructure/db"
@@ -15,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
 func discardLog() *slog.Logger {
 	return slog.New(slog.NewTextHandler(nil, &slog.HandlerOptions{Level: slog.LevelError + 10}))
 }
@@ -244,4 +244,149 @@ func TestPaymentRepository_ExpirePaymentTx_beginError(t *testing.T) {
 
 	err := repo.ExpirePaymentTx(context.Background(), "pay-1", "booking-1")
 	require.Error(t, err)
+}
+
+// ── Additional LogCallback, ListExpiredPending, ExpirePaymentTx paths ─────────
+
+func TestPaymentRepository_LogCallback_dbError(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+	mock.ExpectExec("INSERT INTO payment_callback_log").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnError(errors.New("db error"))
+	_, err := repo.LogCallback(context.Background(), "key-1", "booking-1", "SUCCESS")
+	require.Error(t, err)
+}
+
+func TestPaymentRepository_ListExpiredPending_found(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+	now := time.Now().UTC()
+	rows := pgxmock.NewRows([]string{"id", "booking_id", "method", "status", "provider_ref", "snap_token", "created_at"}).
+		AddRow("pay-1", "booking-1", "gopay", entity.PaymentStatusPending, "ref-1", "snap-1", now)
+	mock.ExpectQuery("SELECT").WithArgs(pgxmock.AnyArg()).WillReturnRows(rows)
+	payments, err := repo.ListExpiredPending(context.Background(), 50)
+	require.NoError(t, err)
+	assert.Len(t, payments, 1)
+}
+
+func TestPaymentRepository_ExpirePaymentTx_expiryUpdateError(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE payment SET status").
+		WithArgs(pgxmock.AnyArg()).WillReturnError(errors.New("update failed"))
+	mock.ExpectRollback()
+	err := repo.ExpirePaymentTx(context.Background(), "pay-1", "booking-1")
+	require.Error(t, err)
+}
+
+func TestPaymentRepository_GetStockByEvent_dbError(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+	mock.ExpectQuery("SELECT").WithArgs("event-1").WillReturnError(errors.New("db error"))
+	_, err := repo.GetStockByEvent(context.Background(), "event-1")
+	require.Error(t, err)
+}
+
+func TestPaymentRepository_HasActiveBooking_dbError(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+	mock.ExpectQuery("SELECT COUNT").WithArgs("event-1").WillReturnError(errors.New("db error"))
+	_, err := repo.HasActiveBooking(context.Background(), "event-1")
+	require.Error(t, err)
+}
+
+func TestPaymentRepository_GetByBookingID_networkError(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+	mock.ExpectQuery("SELECT").WithArgs("booking-1").WillReturnError(errors.New("db error"))
+	_, err := repo.GetByBookingID(context.Background(), "booking-1")
+	require.Error(t, err)
+}
+
+// ── stubTx untuk Tx-based payment methods ─────────────────────────────────────
+
+type stubTx struct {
+	execResult pgconn.CommandTag
+	execErr    error
+}
+
+func newSuccessStub() *stubTx { return &stubTx{execResult: pgconn.NewCommandTag("UPDATE 1")} }
+func newErrStub(err error) *stubTx  { return &stubTx{execErr: err} }
+
+func (s *stubTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	return s.execResult, s.execErr
+}
+func (s *stubTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) { return nil, nil }
+func (s *stubTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row        { return noopRow{} }
+func (s *stubTx) Begin(_ context.Context) (pgx.Tx, error)                       { return s, nil }
+func (s *stubTx) Commit(_ context.Context) error                                 { return nil }
+func (s *stubTx) Rollback(_ context.Context) error                               { return nil }
+func (s *stubTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
+	return 0, nil
+}
+func (s *stubTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
+func (s *stubTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
+func (s *stubTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
+	return nil, nil
+}
+func (s *stubTx) Conn() *pgx.Conn { return nil }
+
+type noopRow struct{}
+
+func (noopRow) Scan(_ ...any) error { return nil }
+
+// ── Create (tx method) ─────────────────────────────────────────────────────────
+
+func TestPaymentRepository_Create_success(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	now := time.Now().UTC()
+	p := entity.Payment{
+		ID: "pay-1", BookingID: "booking-1",
+		Method: "gopay", Status: entity.PaymentStatusPending, CreatedAt: now,
+	}
+	tx := newSuccessStub()
+	err := repo.Create(context.Background(), tx, p)
+	require.NoError(t, err)
+}
+
+func TestPaymentRepository_Create_error(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	tx := newErrStub(errors.New("insert failed"))
+	err := repo.Create(context.Background(), tx, entity.Payment{})
+	require.Error(t, err)
+}
+
+// ── UpdateStatus (tx method) ───────────────────────────────────────────────────
+
+func TestPaymentRepository_UpdateStatus_success(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	tx := newSuccessStub()
+	err := repo.UpdateStatus(context.Background(), tx, "pay-1", entity.PaymentStatusSuccess)
+	require.NoError(t, err)
+}
+
+func TestPaymentRepository_UpdatePaymentStatusByBookingID_success(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	tx := newSuccessStub()
+	err := repo.UpdatePaymentStatusByBookingID(context.Background(), tx, "booking-1", entity.PaymentStatusFailed)
+	require.NoError(t, err)
+}
+
+func TestPaymentRepository_UpdateBookingStatus_success(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	tx := newSuccessStub()
+	err := repo.UpdateBookingStatus(context.Background(), tx, "booking-1", "PAID")
+	require.NoError(t, err)
 }

@@ -95,3 +95,11 @@ func TestKafkaProducer_AllTopics(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"payment.succeeded", "payment.expired", "slot.released", "event.sold_out"}, topics)
 }
+
+// ── NewKafkaProducer constructor ───────────────────────────────────────────────
+
+func TestNewKafkaProducer_nilProducer(t *testing.T) {
+	// NewKafkaProducer menerima nil — tidak connect ke Kafka.
+	p := event.NewKafkaProducer(nil, discardLog())
+	assert.NotNil(t, p)
+}

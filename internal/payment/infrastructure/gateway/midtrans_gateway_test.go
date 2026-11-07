@@ -198,3 +198,22 @@ func TestNewMidtransGateway_production(t *testing.T) {
 	gw := gateway.NewMidtransGateway("test-server-key", "production", discardLog())
 	assert.NotNil(t, gw)
 }
+
+// ── min helper coverage ───────────────────────────────────────────────────────
+
+// TestCreateSnapToken_shortSnapToken: covers min(8, len) where len < 8 (a >= b case).
+func TestCreateSnapToken_shortSnapToken(t *testing.T) {
+	mock := &mockMidtransClient{
+		response: snap.Response{
+			Token:       "tok12",     // len=5 < 8 → min(8,5)=5 covers a>=b branch
+			RedirectURL: "https://mock.url/tok12",
+		},
+	}
+	gw := newGateway(t, mock)
+	req := outbound.SnapRequest{
+		OrderID: "booking-short", GrossAmount: 100000, Email: "a@b.com",
+	}
+	result, err := gw.CreateSnapToken(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "tok12", result.SnapToken)
+}
