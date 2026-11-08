@@ -71,5 +71,5 @@ func main() {
 	cancel() // stop sweeper
 	shutCtx, cancelShut := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShut()
-	srv.Shutdown(shutCtx) //nolint:errcheck
+	srv.Shutdown(shutCtx) // #nosec G104 //nolint:errcheck
 }

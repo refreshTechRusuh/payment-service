@@ -43,7 +43,7 @@ func RegisterRoutesWithSecret(mux *http.ServeMux, h *Handler, paymentTokenSecret
 	mux.HandleFunc("POST /api/payment/v1/callback", h.Callback)
 
 	mux.HandleFunc("GET /sys/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`))
+		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`)) // #nosec G104 -- health endpoint
 	})
 }
 
@@ -77,7 +77,7 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, cfg *config.Config) {
 	mux.HandleFunc("POST /api/payment/v1/callback", h.Callback)
 
 	mux.HandleFunc("GET /sys/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`))
+		w.Write([]byte(`{"status":"00000","message":"pong","data":{}}`)) // #nosec G104 -- health endpoint
 	})
 }
 

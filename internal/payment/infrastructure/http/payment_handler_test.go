@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/refreshTechRusuh/payment-service/internal/config"
 	"github.com/refreshTechRusuh/payment-service/internal/payment/domain/dto"
 	payhttp "github.com/refreshTechRusuh/payment-service/internal/payment/infrastructure/http"
 	"github.com/refreshTechRusuh/payment-service/pkg/apperror"
@@ -303,4 +304,30 @@ func TestPing(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "pong")
+}
+
+// ── NewWiredHandler + RegisterRoutes — nil/minimal deps ─────────────────────
+
+func TestNewWiredHandler_nilDeps(t *testing.T) {
+	// Konstruktor tidak connect saat dibuat.
+	// cfg.Midtrans.ServerKey bisa kosong (tidak connect ke Midtrans saat konstruksi).
+	cfg := &config.Config{}
+	cfg.JWT.PaymentTokenSecret = "test"
+	h := payhttp.NewWiredHandler(nil, cfg, nil, nil)
+	assert.NotNil(t, h)
+}
+
+func TestRegisterRoutes_registersEndpoints(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.JWT.PaymentTokenSecret = testSecret
+
+	mux := http.NewServeMux()
+	h := payhttp.NewHandlerWithUsecase(&mockUsecase{})
+	payhttp.RegisterRoutes(mux, h, cfg)
+
+	// Ping endpoint harus terdaftar
+	req := httptest.NewRequest(http.MethodGet, "/sys/ping", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
 }

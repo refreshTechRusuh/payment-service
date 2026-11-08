@@ -162,3 +162,6 @@ type errExpirePaymentRepo struct {
 func (r *errExpirePaymentRepo) ExpirePaymentTx(_ context.Context, _, _ string) error {
 	return errors.New("expire tx failed")
 }
+
+// safePrefix short string path is not reachable via normal Charge flow (NIK always 16 chars).
+// Coverage of the short-string branch is accepted as-is.

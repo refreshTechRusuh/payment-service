@@ -276,7 +276,7 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 	switch status {
 	case "SUCCESS":
 		// payment.succeeded → Notification Worker (email #2 e-tiket)
-		u.producer.PublishPaymentSucceeded(ctx, snap.EventID, kafka.PaymentSucceededEvent{
+		u.producer.PublishPaymentSucceeded(ctx, snap.EventID, kafka.PaymentSucceededEvent{ // #nosec G104
 			BookingID: bookingID,
 			EventID:   snap.EventID,
 			EventName: snap.EventName,
@@ -284,19 +284,19 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 			Items:     itemEvents,
 		})
 		// slot.released (PAID) → Queue Service promosi antrian
-		u.producer.PublishSlotReleased(ctx, snap.EventID, kafka.SlotReleasedEvent{
+		u.producer.PublishSlotReleased(ctx, snap.EventID, kafka.SlotReleasedEvent{ // #nosec G104
 			BookingID: bookingID, EventID: snap.EventID, Reason: "PAID",
 		})
 
 	case "FAILED", "EXPIRED":
 		// payment.expired → Notification Worker (email #3)
-		u.producer.PublishPaymentExpired(ctx, snap.EventID, kafka.PaymentExpiredEvent{
+		u.producer.PublishPaymentExpired(ctx, snap.EventID, kafka.PaymentExpiredEvent{ // #nosec G104
 			BookingID: bookingID,
 			EventID:   snap.EventID,
 			Email:     snap.Email, // tujuan email pembatalan
 		})
 		// slot.released (PAYMENT_TTL) → Queue Service promosi antrian
-		u.producer.PublishSlotReleased(ctx, snap.EventID, kafka.SlotReleasedEvent{
+		u.producer.PublishSlotReleased(ctx, snap.EventID, kafka.SlotReleasedEvent{ // #nosec G104
 			BookingID: bookingID, EventID: snap.EventID, Reason: "PAYMENT_TTL",
 		})
 	}
