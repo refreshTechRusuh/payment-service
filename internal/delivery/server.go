@@ -34,6 +34,7 @@ func New(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *ka
 	// Wrap seluruh mux dengan request logger.
 	logged := middleware.RequestLogger(slog.Default())(mux)
 	traced := middleware.OtelMiddleware("payment-service")(logged)
+	corsed := middleware.CORSMiddleware("*")(traced)
 
 	closeFn := func() {
 		pool.Close()
@@ -42,5 +43,5 @@ func New(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *ka
 			valkeyClient.Close()
 		}
 	}
-	return traced, uc, closeFn
+	return corsed, uc, closeFn
 }
