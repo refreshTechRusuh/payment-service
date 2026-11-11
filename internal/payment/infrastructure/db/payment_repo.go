@@ -252,11 +252,13 @@ func (r *PaymentRepository) ListExpiredPending(ctx context.Context, limit int) (
 	return result, nil
 }
 
-// ExpirePaymentTx mengeksekusi UPDATE payment=EXPIRED + booking=EXPIRED dalam satu transaksi.
+// ExpirePaymentTx mengeksekusi UPDATE payment=EXPIRED dalam satu transaksi.
+// Booking status TIDAK diupdate di sini — diserahkan ke booking-service sweeper
+// yang juga menangani ReleaseStock. Memperbarui booking.status di sini menyebabkan
+// race condition: booking-service sweeper melewati booking EXPIRED → stok tidak di-release.
 func (r *PaymentRepository) ExpirePaymentTx(ctx context.Context, paymentID, bookingID string) error {
 	start := time.Now()
 	const qExpirePayment = `UPDATE payment SET status='EXPIRED' WHERE id=$1 AND status='PENDING'`
-	const qExpireBooking = `UPDATE booking SET status='EXPIRED' WHERE id=$1 AND status='HELD'`
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		dbLog(ctx, r.log, "payment.expire_tx.begin", "BEGIN", start, err, slog.String("paymentId", paymentID))
@@ -267,10 +269,6 @@ func (r *PaymentRepository) ExpirePaymentTx(ctx context.Context, paymentID, book
 	if _, err := tx.Exec(ctx, qExpirePayment, paymentID); err != nil {
 		dbLog(ctx, r.log, "payment.expire_tx.update_payment", qExpirePayment, start, err, slog.String("paymentId", paymentID))
 		return fmt.Errorf("expire payment: %w", err)
-	}
-	if _, err := tx.Exec(ctx, qExpireBooking, bookingID); err != nil {
-		dbLog(ctx, r.log, "payment.expire_tx.update_booking", qExpireBooking, start, err, slog.String("bookingId", bookingID))
-		return fmt.Errorf("expire booking: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

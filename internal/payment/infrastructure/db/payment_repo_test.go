@@ -223,13 +223,14 @@ func TestPaymentRepository_GetStockByEvent(t *testing.T) {
 }
 
 // ExpirePaymentTx — kelola transaksi sendiri.
+// Booking status tidak lagi diupdate di sini (race condition fix: booking-service sweeper
+// adalah satu-satunya yang update booking.status + release stock).
 func TestPaymentRepository_ExpirePaymentTx_success(t *testing.T) {
 	mock := newMock(t)
 	repo := db.NewPaymentRepository(mock, discardLog())
 
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE payment SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
-	mock.ExpectExec("UPDATE booking SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 	mock.ExpectCommit()
 
 	err := repo.ExpirePaymentTx(context.Background(), "pay-1", "booking-1")
