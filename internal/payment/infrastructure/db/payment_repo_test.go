@@ -239,6 +239,23 @@ func TestPaymentRepository_ExpirePaymentTx_success(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestPaymentRepository_ExpirePaymentTx_bookingAlreadyExpired: kalau booking sudah EXPIRED
+// (booking-service sweeper duluan), RowsAffected=0 → stock release di-skip → tidak double-release.
+func TestPaymentRepository_ExpirePaymentTx_bookingAlreadyExpired(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE payment SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	// Booking sudah EXPIRED → RowsAffected = 0
+	mock.ExpectExec("UPDATE booking SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
+	// qReleaseStock TIDAK dipanggil karena RowsAffected == 0
+	mock.ExpectCommit()
+
+	err := repo.ExpirePaymentTx(context.Background(), "pay-1", "booking-already-expired")
+	require.NoError(t, err)
+}
+
 func TestPaymentRepository_ExpirePaymentTx_beginError(t *testing.T) {
 	mock := newMock(t)
 	repo := db.NewPaymentRepository(mock, discardLog())

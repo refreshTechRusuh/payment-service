@@ -191,9 +191,13 @@ func (r *PaymentRepository) GetBookingSnapshot(ctx context.Context, bookingID st
 	return snap, nil
 }
 
+// UpdateBookingStatus mengubah status booking dalam transaksi.
+// Guard status 'EXPIRED' dan 'CANCELLED' untuk mencegah callback Midtrans yang terlambat
+// menimpa booking yang sudah di-expire oleh sweeper.
 func (r *PaymentRepository) UpdateBookingStatus(ctx context.Context, tx pgx.Tx, bookingID string, status string) error {
 	start := time.Now()
-	const qUpdate = `UPDATE booking SET status=$2 WHERE id=$1`
+	// Guard: jangan timpa EXPIRED/CANCELLED. PAID boleh menimpa HELD (normal flow).
+	const qUpdate = `UPDATE booking SET status=$2 WHERE id=$1 AND status NOT IN ('EXPIRED','CANCELLED')`
 	_, err := tx.Exec(ctx, qUpdate, bookingID, status)
 	dbLog(ctx, r.log, "payment.update_booking_status", qUpdate, start, err,
 		slog.String("bookingId", bookingID),
@@ -253,9 +257,9 @@ func (r *PaymentRepository) ListExpiredPending(ctx context.Context, limit int) (
 }
 
 // ExpirePaymentTx mengeksekusi UPDATE payment=EXPIRED + booking=EXPIRED + ReleaseStock dalam satu transaksi.
-// Ketiga operasi dijalankan bersama agar tidak ada race condition dengan booking-service sweeper:
-//   - payment-service expire dulu → booking=EXPIRED + stock released atomically
-//   - booking-service sweeper: WHERE status='HELD' → booking sudah EXPIRED → skip (tidak ada double-release)
+// qReleaseStock HANYA dijalankan kalau qExpireBooking benar-benar mengubah baris (RowsAffected > 0).
+// Ini mencegah double-release kalau booking-service sweeper lebih dulu mengubah booking ke EXPIRED
+// sebelum payment-service sweeper sempat jalan.
 func (r *PaymentRepository) ExpirePaymentTx(ctx context.Context, paymentID, bookingID string) error {
 	start := time.Now()
 	const qExpirePayment = `UPDATE payment SET status='EXPIRED' WHERE id=$1 AND status='PENDING'`
@@ -280,13 +284,24 @@ func (r *PaymentRepository) ExpirePaymentTx(ctx context.Context, paymentID, book
 		dbLog(ctx, r.log, "payment.expire_tx.update_payment", qExpirePayment, start, err, slog.String("paymentId", paymentID))
 		return fmt.Errorf("expire payment: %w", err)
 	}
-	if _, err := tx.Exec(ctx, qExpireBooking, bookingID); err != nil {
+
+	// Cek RowsAffected: kalau booking sudah EXPIRED (di-sweep booking-service duluan), skip release stock.
+	bookingTag, err := tx.Exec(ctx, qExpireBooking, bookingID)
+	if err != nil {
 		dbLog(ctx, r.log, "payment.expire_tx.update_booking", qExpireBooking, start, err, slog.String("bookingId", bookingID))
 		return fmt.Errorf("expire booking: %w", err)
 	}
-	if _, err := tx.Exec(ctx, qReleaseStock, bookingID); err != nil {
-		dbLog(ctx, r.log, "payment.expire_tx.release_stock", qReleaseStock, start, err, slog.String("bookingId", bookingID))
-		return fmt.Errorf("expire release stock: %w", err)
+
+	if bookingTag.RowsAffected() > 0 {
+		// Booking berhasil di-expire di sini → kita yang release stock.
+		if _, err := tx.Exec(ctx, qReleaseStock, bookingID); err != nil {
+			dbLog(ctx, r.log, "payment.expire_tx.release_stock", qReleaseStock, start, err, slog.String("bookingId", bookingID))
+			return fmt.Errorf("expire release stock: %w", err)
+		}
+	} else {
+		// Booking sudah EXPIRED sebelumnya (booking-service sweeper duluan) → stock sudah di-release, skip.
+		dbLog(ctx, r.log, "payment.expire_tx.release_stock_skipped", "SKIP release stock", start, nil,
+			slog.String("bookingId", bookingID))
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -295,7 +310,8 @@ func (r *PaymentRepository) ExpirePaymentTx(ctx context.Context, paymentID, book
 	}
 	dbLog(ctx, r.log, "payment.expire_tx", "TX expire payment+booking+stock", start, nil,
 		slog.String("paymentId", paymentID),
-		slog.String("bookingId", bookingID))
+		slog.String("bookingId", bookingID),
+		slog.Bool("stockReleased", bookingTag.RowsAffected() > 0))
 	return nil
 }
 
