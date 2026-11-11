@@ -78,8 +78,15 @@ func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string
 	remaining := remainingSeconds(snap.PaymentExpiresAt)
 
 	var total int64
+	items := make([]dto.BookingPaymentItem, 0, len(snap.Items))
 	for _, item := range snap.Items {
 		total += item.PriceSnapshot
+		items = append(items, dto.BookingPaymentItem{
+			CategoryID:   item.CategoryID,
+			CategoryName: item.CategoryName,
+			NIK:          maskNIK(item.NIK),
+			Price:        item.PriceSnapshot,
+		})
 	}
 
 	// Ambil redirectUrl dari Redis (di-cache saat Charge) agar FE bisa redirect ulang tanpa Charge baru.
@@ -91,7 +98,10 @@ func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string
 
 	return dto.BookingPaymentDetailResponse{
 		BookingID:        bookingID,
+		EventName:        snap.EventName,
+		Email:            snap.Email,
 		Total:            total,
+		Items:            items,
 		RedirectURL:      redirectURL,
 		RemainingSeconds: remaining,
 		Status:           snap.Status,
@@ -337,4 +347,20 @@ func safePrefix(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// maskNIK menampilkan 4 digit awal NIK dan mengganti sisanya dengan *.
+// Contoh: "3273000000000002" → "3273************"
+func maskNIK(nik string) string {
+	const show = 4
+	r := []rune(nik)
+	if len(r) <= show {
+		return nik
+	}
+	masked := make([]rune, len(r))
+	copy(masked, r[:show])
+	for i := show; i < len(r); i++ {
+		masked[i] = '*'
+	}
+	return string(masked)
 }
