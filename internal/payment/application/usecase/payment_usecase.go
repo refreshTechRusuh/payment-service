@@ -82,11 +82,9 @@ func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string
 		total += item.PriceSnapshot
 	}
 
-	// Ambil snapToken dan redirectUrl dari payment PENDING yang sudah ada (jika ada).
-	var snapToken, redirectURL string
-	if existing, err := u.repo.GetByBookingID(ctx, bookingID); err == nil {
-		snapToken = existing.SnapToken
-	}
+	// Ambil redirectUrl dari Redis (di-cache saat Charge) agar FE bisa redirect ulang tanpa Charge baru.
+	// SnapToken tidak dikembalikan — FE selalu ambil dari POST /charge (idempoten).
+	var redirectURL string
 	if u.redirectStore != nil {
 		redirectURL, _ = u.redirectStore.GetRedirectURL(ctx, bookingID)
 	}
@@ -94,7 +92,6 @@ func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string
 	return dto.BookingPaymentDetailResponse{
 		BookingID:        bookingID,
 		Total:            total,
-		SnapToken:        snapToken,
 		RedirectURL:      redirectURL,
 		RemainingSeconds: remaining,
 		Status:           snap.Status,

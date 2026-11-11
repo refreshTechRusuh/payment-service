@@ -3,10 +3,10 @@ package dto
 // BookingPaymentDetailResponse adalah response GET /booking/{bookingId}.
 // Methods dihapus karena Midtrans Snap menampilkan semua metode di checkout page-nya sendiri.
 // RedirectURL diambil dari Redis (di-cache saat Charge) agar FE bisa redirect ulang tanpa Charge baru.
+// SnapToken tidak dikembalikan di sini — FE selalu ambil dari POST /charge (idempoten).
 type BookingPaymentDetailResponse struct {
 	BookingID        string `json:"bookingId"`
 	Total            int64  `json:"total"`
-	SnapToken        string `json:"snapToken,omitempty"`
 	RedirectURL      string `json:"redirectUrl,omitempty"`
 	RemainingSeconds int    `json:"remainingSeconds"`
 	Status           string `json:"status"`
