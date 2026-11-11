@@ -480,7 +480,7 @@ func TestSweeper_ExpiresPendingPayment(t *testing.T) {
 		},
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 
 	// Panggil SweepOnce (synchronous, tanpa ticker)
 	uc.SweepOnce(context.Background())
@@ -526,7 +526,7 @@ func (r *sweeperMockRepo) ExpirePaymentTx(_ context.Context, paymentID, bookingI
 func buildUC(repo *mockRepo, prod *mockProducer, midtransKey string) *usecase.PaymentUsecase {
 	return usecase.NewPaymentUsecase(
 		nil,
-		repo, &noopGateway{}, prod, nil, midtransKey, slog.Default(),
+		repo, &noopGateway{}, prod, nil, midtransKey, midtransKey, slog.Default(),
 	)
 }
 

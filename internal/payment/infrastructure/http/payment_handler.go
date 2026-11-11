@@ -63,7 +63,7 @@ func NewWiredHandlerWithUC(pool *pgxpool.Pool, cfg *config.Config, producer *kaf
 	if valkeyClient != nil {
 		redirectStore = db.NewRedirectStore(valkeyClient)
 	}
-	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, redirectStore, cfg.Midtrans.ServerKey, log)
+	uc := usecase.NewPaymentUsecase(pool, repo, gw, ep, redirectStore, cfg.Midtrans.ServerKey, cfg.Midtrans.SignatureKey, log)
 	return &Handler{usecase: uc}, uc
 }
 func RegisterRoutes(mux *http.ServeMux, h *Handler, cfg *config.Config) {

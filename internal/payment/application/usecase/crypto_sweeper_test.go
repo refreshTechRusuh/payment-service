@@ -114,7 +114,7 @@ func TestSweepOnce_Payment_Empty_NoOp(t *testing.T) {
 
 func TestSweepOnce_Payment_ListExpiredError_Logs(t *testing.T) {
 	repo := &errListExpiredRepo{mockRepo: newMockRepo(makeCallbackSnap())}
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, newMockProducer(), nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, newMockProducer(), nil, "", "", slog.Default())
 	assert.NotPanics(t, func() { uc.SweepOnce(context.Background()) })
 }
 
@@ -126,7 +126,7 @@ func TestSweepOnce_Payment_ExpiresPayment_PublishesEvents(t *testing.T) {
 		stocks:          []entity.CategoryStock{{CategoryID: "cat-1", Available: 5}},
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 	assert.NotPanics(t, func() { uc.SweepOnce(context.Background()) })
 	time.Sleep(100 * time.Millisecond)
 	// Slot released dan payment expired harus dipublish
@@ -143,7 +143,7 @@ func TestSweepOnce_EmptyEventID_SkipsKafka(t *testing.T) {
 		stocks:          []entity.CategoryStock{},
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 	uc.SweepOnce(context.Background())
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, 0, prod.count("payment.expired"), "eventID kosong tidak boleh publish payment.expired")
@@ -159,7 +159,7 @@ func TestCheckAndPublishSoldOut_GetStockError_NoOp(t *testing.T) {
 			expiredPayments: []entity.Payment{{ID: "pay-x", BookingID: "bkg-001"}},
 		},
 	}
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, newMockProducer(), nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, newMockProducer(), nil, "", "", slog.Default())
 	assert.NotPanics(t, func() {
 		uc.SweepOnce(context.Background())
 		time.Sleep(100 * time.Millisecond)
@@ -174,7 +174,7 @@ func TestCheckAndPublishSoldOut_StillHasStock_NoSoldOut(t *testing.T) {
 		stocks:          []entity.CategoryStock{{CategoryID: "cat-1", Available: 5}},
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 	uc.SweepOnce(context.Background())
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, 0, prod.count("event.sold_out"), "masih ada stok, tidak sold-out")
@@ -189,7 +189,7 @@ func TestCheckAndPublishSoldOut_ZeroStockHasActive_NoSoldOut(t *testing.T) {
 		hasActive:       true,
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 	uc.SweepOnce(context.Background())
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, 0, prod.count("event.sold_out"), "ada HELD aktif, belum sold-out")
