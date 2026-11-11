@@ -34,7 +34,7 @@ func TestCharge_Idempoten_PendingExists(t *testing.T) {
 	repo := newMockRepo(snap)
 	prod := newMockProducer()
 	gw := &countingGateway{}
-	uc := usecase.NewPaymentUsecase(nil, repo, gw, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, gw, prod, nil, "", "", slog.Default())
 
 	req := dto.ChargeRequest{
 		BookingID: "bkg-001",
@@ -103,7 +103,7 @@ func TestCharge_RejectsNearZeroTTL(t *testing.T) {
 	snap := defaultSnap("HELD", expiresIn(3*time.Second)) // 3s tersisa — terlalu kecil
 	repo := newMockRepo(snap)
 	gw := &countingGateway{}
-	uc := usecase.NewPaymentUsecase(nil, repo, gw, newMockProducer(), nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, gw, newMockProducer(), nil, "", "", slog.Default())
 
 	// Tunggu TTL habis
 	time.Sleep(4 * time.Second)
@@ -183,7 +183,7 @@ func TestSweeper_SoldOut_AfterExpire(t *testing.T) {
 		hasActive: false, // tidak ada HELD aktif
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 
 	// SweepOnce — satu siklus synchronous
 	uc.SweepOnce(context.Background())

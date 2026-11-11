@@ -71,8 +71,9 @@ type DukcapilConfig struct {
 }
 
 type MidtransConfig struct {
-	ServerKey string
-	Env       string // "sandbox" | "production"
+	ServerKey    string
+	SignatureKey string // untuk verifikasi signature Midtrans callback (Signature Secret Key)
+	Env          string // "sandbox" | "production"
 }
 
 type EmailConfig struct {
@@ -133,6 +134,7 @@ func Load() (*Config, error) {
 		},
 		Midtrans: MidtransConfig{
 			ServerKey: getEnv("MIDTRANS_SERVER_KEY", ""),   // opsional di lokal (sandbox)
+			SignatureKey: getEnv("MIDTRANS_SIGNATURE_KEY", getEnv("MIDTRANS_SERVER_KEY", "")), // fallback ke ServerKey bila tidak di-set
 			Env:       getEnv("MIDTRANS_ENV", "sandbox"),
 		},
 		// Email tidak dipakai payment-service (hanya worker-service yang kirim email)

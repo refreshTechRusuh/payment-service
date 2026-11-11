@@ -70,7 +70,7 @@ func TestPostExpirePaymentPublish_AllPublishError_NoPanic(t *testing.T) {
 		stocks:          []entity.CategoryStock{{CategoryID: "cat-1", Available: 0}},
 		hasActive:       false,
 	}
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, errProd, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, errProd, nil, "", "", slog.Default())
 	assert.NotPanics(t, func() {
 		uc.SweepOnce(context.Background())
 		time.Sleep(100 * time.Millisecond)
@@ -87,7 +87,7 @@ func TestCheckAndPublishSoldOut_EmptyStocks_Skip(t *testing.T) {
 		stocks:          []entity.CategoryStock{}, // empty → tidak ada sold-out check
 	}
 	prod := newMockProducer()
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, prod, nil, "", "", slog.Default())
 	uc.SweepOnce(context.Background())
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, 0, prod.count("event.sold_out"))
@@ -131,7 +131,7 @@ func TestSweepOnce_ExpirePaymentTxError_NoPanic(t *testing.T) {
 			stocks:          []entity.CategoryStock{},
 		},
 	}
-	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, newMockProducer(), nil, "", slog.Default())
+	uc := usecase.NewPaymentUsecase(nil, repo, &noopGateway{}, newMockProducer(), nil, "", "", slog.Default())
 	assert.NotPanics(t, func() {
 		uc.SweepOnce(context.Background())
 		time.Sleep(50 * time.Millisecond)

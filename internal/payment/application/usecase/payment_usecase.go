@@ -41,7 +41,8 @@ type PaymentUsecase struct {
 	gateway       outbound.IPaymentGateway
 	producer      outbound.IEventProducer
 	redirectStore outbound.IRedirectStore
-	midtransKey   string
+	midtransKey   string // server key untuk Snap API
+	signatureKey  string // Signature Secret Key untuk verifikasi callback
 	log           *slog.Logger
 }
 
@@ -52,6 +53,7 @@ func NewPaymentUsecase(
 	producer outbound.IEventProducer,
 	redirectStore outbound.IRedirectStore,
 	midtransServerKey string,
+	midtransSignatureKey string,
 	log *slog.Logger,
 ) *PaymentUsecase {
 	return &PaymentUsecase{
@@ -61,6 +63,7 @@ func NewPaymentUsecase(
 		producer:      producer,
 		redirectStore: redirectStore,
 		midtransKey:   midtransServerKey,
+		signatureKey:  midtransSignatureKey,
 		log:           log,
 	}
 }
@@ -214,7 +217,11 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 // Req 8.3 (idempoten), Req 8.4, Req 8.5 (signature verify).
 func (u *PaymentUsecase) HandleCallback(ctx context.Context, cb dto.MidtransCallback) error {
 	// 1. Verifikasi signature_key Midtrans DULU
-	if u.midtransKey != "" && !verifyMidtransSignature(u.midtransKey, cb.OrderID, cb.StatusCode, cb.GrossAmount, cb.SignatureKey) {
+	sigKey := u.signatureKey
+	if sigKey == "" {
+		sigKey = u.midtransKey // fallback untuk backward compat
+	}
+	if sigKey != "" && !verifyMidtransSignature(sigKey, cb.OrderID, cb.StatusCode, cb.GrossAmount, cb.SignatureKey) {
 		u.log.WarnContext(ctx, "callback signature invalid", slog.String("orderID", cb.OrderID))
 		return apperror.New(apperror.ErrUnauthorized, "Signature tidak valid")
 	}
