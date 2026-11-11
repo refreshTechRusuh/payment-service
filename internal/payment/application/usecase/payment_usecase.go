@@ -81,23 +81,30 @@ func (u *PaymentUsecase) GetBookingPayment(ctx context.Context, bookingID string
 	remaining := remainingSeconds(snap.PaymentExpiresAt)
 
 	var total int64
+	items := make([]dto.BookingPaymentItem, 0, len(snap.Items))
 	for _, item := range snap.Items {
 		total += item.PriceSnapshot
+		items = append(items, dto.BookingPaymentItem{
+			CategoryID:   item.CategoryID,
+			CategoryName: item.CategoryName,
+			NIK:          maskNIK(item.NIK),
+			Price:        item.PriceSnapshot,
+		})
 	}
 
-	// Ambil snapToken dan redirectUrl dari payment PENDING yang sudah ada (jika ada).
-	var snapToken, redirectURL string
-	if existing, err := u.repo.GetByBookingID(ctx, bookingID); err == nil {
-		snapToken = existing.SnapToken
-	}
+	// Ambil redirectUrl dari Redis (di-cache saat Charge) agar FE bisa redirect ulang tanpa Charge baru.
+	// SnapToken tidak dikembalikan — FE selalu ambil dari POST /charge (idempoten).
+	var redirectURL string
 	if u.redirectStore != nil {
 		redirectURL, _ = u.redirectStore.GetRedirectURL(ctx, bookingID)
 	}
 
 	return dto.BookingPaymentDetailResponse{
 		BookingID:        bookingID,
+		EventName:        snap.EventName,
+		Email:            snap.Email,
 		Total:            total,
-		SnapToken:        snapToken,
+		Items:            items,
 		RedirectURL:      redirectURL,
 		RemainingSeconds: remaining,
 		Status:           snap.Status,
@@ -347,4 +354,21 @@ func safePrefix(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// maskNIK menampilkan 4 digit awal dan 4 digit akhir NIK, mengganti tengahnya dengan *.
+// Contoh: "3273000000000002" → "3273********0002"
+func maskNIK(nik string) string {
+	const show = 4
+	r := []rune(nik)
+	if len(r) <= show*2 {
+		return nik
+	}
+	masked := make([]rune, len(r))
+	copy(masked[:show], r[:show])
+	for i := show; i < len(r)-show; i++ {
+		masked[i] = '*'
+	}
+	copy(masked[len(r)-show:], r[len(r)-show:])
+	return string(masked)
 }

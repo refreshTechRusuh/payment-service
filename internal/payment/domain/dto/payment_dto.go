@@ -1,16 +1,27 @@
 package dto
 
+// BookingPaymentItem adalah satu baris tiket di payment detail response.
+type BookingPaymentItem struct {
+	CategoryID   string `json:"categoryId"`
+	CategoryName string `json:"categoryName"`
+	NIK          string `json:"nik"`    // masked: hanya 4 digit awal, sisanya *
+	Price        int64  `json:"price"`
+}
+
 // BookingPaymentDetailResponse adalah response GET /booking/{bookingId}.
 // Methods dihapus karena Midtrans Snap menampilkan semua metode di checkout page-nya sendiri.
 // RedirectURL diambil dari Redis (di-cache saat Charge) agar FE bisa redirect ulang tanpa Charge baru.
+// SnapToken tidak dikembalikan di sini — FE selalu ambil dari POST /charge (idempoten).
 type BookingPaymentDetailResponse struct {
-	BookingID        string `json:"bookingId"`
-	Total            int64  `json:"total"`
-	SnapToken        string `json:"snapToken,omitempty"`
-	RedirectURL      string `json:"redirectUrl,omitempty"`
-	RemainingSeconds int    `json:"remainingSeconds"`
-	Status           string `json:"status"`
-	BackDisabled     bool   `json:"backDisabled"`
+	BookingID        string               `json:"bookingId"`
+	EventName        string               `json:"eventName"`
+	Email            string               `json:"email"`
+	Total            int64                `json:"total"`
+	Items            []BookingPaymentItem `json:"items"`
+	RedirectURL      string               `json:"redirectUrl,omitempty"`
+	RemainingSeconds int                  `json:"remainingSeconds"`
+	Status           string               `json:"status"`
+	BackDisabled     bool                 `json:"backDisabled"`
 }
 
 // ChargeRequest adalah body POST /payments/charge.

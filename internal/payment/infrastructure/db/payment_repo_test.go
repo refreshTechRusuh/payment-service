@@ -222,7 +222,9 @@ func TestPaymentRepository_GetStockByEvent(t *testing.T) {
 	assert.Equal(t, 45, stocks[0].Available)
 }
 
-// ExpirePaymentTx — kelola transaksi sendiri.
+// ExpirePaymentTx — UPDATE payment + booking + release stock dalam satu transaksi.
+// Booking status diupdate di sini DAN stock dirilis agar booking-service sweeper tidak perlu
+// menangani booking yang sudah EXPIRED (WHERE status='HELD' akan skip → tidak ada double-release).
 func TestPaymentRepository_ExpirePaymentTx_success(t *testing.T) {
 	mock := newMock(t)
 	repo := db.NewPaymentRepository(mock, discardLog())
@@ -230,9 +232,27 @@ func TestPaymentRepository_ExpirePaymentTx_success(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE payment SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 	mock.ExpectExec("UPDATE booking SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	mock.ExpectExec("UPDATE ticket_category").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 	mock.ExpectCommit()
 
 	err := repo.ExpirePaymentTx(context.Background(), "pay-1", "booking-1")
+	require.NoError(t, err)
+}
+
+// TestPaymentRepository_ExpirePaymentTx_bookingAlreadyExpired: kalau booking sudah EXPIRED
+// (booking-service sweeper duluan), RowsAffected=0 → stock release di-skip → tidak double-release.
+func TestPaymentRepository_ExpirePaymentTx_bookingAlreadyExpired(t *testing.T) {
+	mock := newMock(t)
+	repo := db.NewPaymentRepository(mock, discardLog())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE payment SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	// Booking sudah EXPIRED → RowsAffected = 0
+	mock.ExpectExec("UPDATE booking SET status").WithArgs(pgxmock.AnyArg()).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
+	// qReleaseStock TIDAK dipanggil karena RowsAffected == 0
+	mock.ExpectCommit()
+
+	err := repo.ExpirePaymentTx(context.Background(), "pay-1", "booking-already-expired")
 	require.NoError(t, err)
 }
 
