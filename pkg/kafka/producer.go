@@ -147,7 +147,8 @@ type PaymentExpiredEvent struct {
 	PaymentID string `json:"paymentId"`
 	BookingID string `json:"bookingId"`
 	EventID   string `json:"eventId"`
-	Email     string `json:"email"`   // tujuan email pembatalan (worker service)
+	EventName string `json:"eventName"` // nama event untuk email expired notice
+	Email     string `json:"email"`     // tujuan email pembatalan (worker service)
 }
 
 type EventSoldOutEvent struct {
