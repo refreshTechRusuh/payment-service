@@ -307,6 +307,7 @@ func (u *PaymentUsecase) publishCallbackEvents(ctx context.Context, status, book
 		u.producer.PublishPaymentExpired(ctx, snap.EventID, kafka.PaymentExpiredEvent{ // #nosec G104
 			BookingID: bookingID,
 			EventID:   snap.EventID,
+			EventName: snap.EventName,
 			Email:     snap.Email, // tujuan email pembatalan
 		})
 		// slot.released (PAYMENT_TTL) → Queue Service promosi antrian
