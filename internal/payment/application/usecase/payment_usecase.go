@@ -164,7 +164,7 @@ func (u *PaymentUsecase) Charge(ctx context.Context, req dto.ChargeRequest) (dto
 		Items:       snapItems,
 		Expiry: &outbound.ExpiryDetails{
 			StartTime: now.Format("2006-01-02 15:04:05 -0700"),
-			Unit:      "seconds",
+			Unit:      "second",
 			Duration:  remaining,
 		},
 	}
