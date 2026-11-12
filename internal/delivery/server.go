@@ -34,7 +34,11 @@ func New(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *ka
 	// Wrap seluruh mux dengan request logger.
 	logged := middleware.RequestLogger(slog.Default())(mux)
 	traced := middleware.OtelMiddleware("payment-service")(logged)
-	corsed := middleware.CORSMiddleware("*")(traced)
+	// Urutan (luar -> dalam): header keamanan, CORS, batas body 1 MB, tracing, logger.
+	// Batas body di dalam CORS agar respons 413 tetap membawa header CORS.
+	limited := middleware.MaxBody(0)(traced) // 0 = default 1 MB
+	corsed := middleware.CORSMiddleware("*")(limited)
+	secured := middleware.SecurityHeaders(corsed)
 
 	closeFn := func() {
 		pool.Close()
@@ -43,5 +47,5 @@ func New(_ context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *ka
 			valkeyClient.Close()
 		}
 	}
-	return corsed, uc, closeFn
+	return secured, uc, closeFn
 }
