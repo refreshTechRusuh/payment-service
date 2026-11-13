@@ -269,7 +269,23 @@ func (u *PaymentUsecase) HandleCallback(ctx context.Context, cb dto.MidtransCall
 		return apperror.Internal(err)
 	}
 
-	// 7. Publish Kafka events (async, best-effort)
+	// 7. Booking sudah tidak HELD (CANCELLED oleh user / EXPIRED oleh sweeper): status
+	//    payment tetap dicatat untuk audit, tapi JANGAN publish event (e-tiket/email/
+	//    slot.released) — stoknya sudah dilepas, jadi menerbitkan tiket = oversell.
+	if snap.Status != "HELD" {
+		if internalStatus == "SUCCESS" {
+			u.log.ErrorContext(ctx, "payment settled for closed booking, needs manual refund (CS)",
+				slog.String("orderID", cb.OrderID), slog.String("bookingStatus", snap.Status),
+				slog.String("paymentType", cb.PaymentType))
+		} else {
+			u.log.InfoContext(ctx, "callback for closed booking, events skipped",
+				slog.String("orderID", cb.OrderID), slog.String("bookingStatus", snap.Status),
+				slog.String("internalStatus", internalStatus))
+		}
+		return nil
+	}
+
+	// 8. Publish Kafka events (async, best-effort)
 	go u.publishCallbackEvents(context.WithoutCancel(ctx), internalStatus, cb.OrderID, snap)
 
 	return nil
