@@ -74,9 +74,12 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 
 	start := time.Now()
 	g.log.InfoContext(ctx, "midtrans snap request",
+		slog.String("method", "POST"),
+		slog.String("endpoint", "/snap/v1/transactions"),
 		slog.String("orderID", req.OrderID),
 		slog.Int64("grossAmount", req.GrossAmount),
 		slog.Int("itemCount", len(items)),
+		slog.Any("requestPayload", payloadForLog(requestPayload)),
 	)
 
 	resp, midtransErr := g.snapClient.CreateTransactionWithMap(&requestPayload)
@@ -85,6 +88,8 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 			slog.String("orderID", req.OrderID),
 			slog.String("duration", time.Since(start).String()),
 			slog.String("error", midtransErr.Error()),
+			slog.Any("requestPayload", payloadForLog(requestPayload)),
+			slog.Any("responsePayload", midtransErrorPayload(midtransErr)),
 		)
 		return outbound.SnapResult{}, fmt.Errorf("midtrans gateway: %w", midtransErr)
 	}
@@ -93,10 +98,48 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 
 	g.log.InfoContext(ctx, "midtrans snap response",
 		slog.String("orderID", req.OrderID),
-		slog.String("snapToken", token[:min(8, len(token))]+"..."),
 		slog.String("duration", time.Since(start).String()),
+		slog.Any("responsePayload", payloadForLog(resp)),
 	)
 	return outbound.SnapResult{SnapToken: token, RedirectURL: redirectURL}, nil
+}
+
+// payloadForLog converts SDK payload values to JSON-shaped data for structured logs.
+// The original value passed to the Midtrans SDK is never modified.
+func payloadForLog(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "[payload unavailable]"
+	}
+
+	var decoded any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return "[payload unavailable]"
+	}
+	return decoded
+}
+
+func midtransErrorPayload(err *midtrans.Error) map[string]any {
+	payload := map[string]any{
+		"statusCode": err.StatusCode,
+		"message":    err.Message,
+	}
+	if err.RawError != nil {
+		payload["transportError"] = err.RawError.Error()
+	}
+	if response := err.RawApiResponse; response != nil {
+		payload["httpStatus"] = response.Status
+		payload["httpStatusCode"] = response.StatusCode
+		if len(response.RawBody) > 0 {
+			var body any
+			if json.Unmarshal(response.RawBody, &body) == nil {
+				payload["body"] = body
+			} else {
+				payload["body"] = "[non-JSON response omitted]"
+			}
+		}
+	}
+	return payload
 }
 
 func snapRequestPayload(req *snap.Request) (snap.RequestParamWithMap, error) {
@@ -131,11 +174,4 @@ func snapRequestPayload(req *snap.Request) (snap.RequestParamWithMap, error) {
 		payload[key] = value
 	}
 	return payload, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
