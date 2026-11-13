@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -66,6 +67,11 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 		}
 	}
 
+	requestPayload, err := snapRequestPayload(snapReq)
+	if err != nil {
+		return outbound.SnapResult{}, fmt.Errorf("midtrans gateway: encode snap request: %w", err)
+	}
+
 	start := time.Now()
 	g.log.InfoContext(ctx, "midtrans snap request",
 		slog.String("orderID", req.OrderID),
@@ -73,22 +79,58 @@ func (g *MidtransGateway) CreateSnapToken(ctx context.Context, req outbound.Snap
 		slog.Int("itemCount", len(items)),
 	)
 
-	resp, err := g.snapClient.CreateTransaction(snapReq)
-	if err != nil {
+	resp, midtransErr := g.snapClient.CreateTransactionWithMap(&requestPayload)
+	if midtransErr != nil {
 		g.log.ErrorContext(ctx, "midtrans snap failed",
 			slog.String("orderID", req.OrderID),
 			slog.String("duration", time.Since(start).String()),
-			slog.String("error", err.Error()),
+			slog.String("error", midtransErr.Error()),
 		)
-		return outbound.SnapResult{}, fmt.Errorf("midtrans gateway: %w", err)
+		return outbound.SnapResult{}, fmt.Errorf("midtrans gateway: %w", midtransErr)
 	}
+	token, _ := resp["token"].(string)
+	redirectURL, _ := resp["redirect_url"].(string)
 
 	g.log.InfoContext(ctx, "midtrans snap response",
 		slog.String("orderID", req.OrderID),
-		slog.String("snapToken", resp.Token[:min(8, len(resp.Token))]+"..."),
+		slog.String("snapToken", token[:min(8, len(token))]+"..."),
 		slog.String("duration", time.Since(start).String()),
 	)
-	return outbound.SnapResult{SnapToken: resp.Token, RedirectURL: resp.RedirectURL}, nil
+	return outbound.SnapResult{SnapToken: token, RedirectURL: redirectURL}, nil
+}
+
+func snapRequestPayload(req *snap.Request) (snap.RequestParamWithMap, error) {
+	encoded, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	payloadFields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(encoded, &payloadFields); err != nil {
+		return nil, err
+	}
+
+	if req.Expiry != nil {
+		customExpiry, err := json.Marshal(struct {
+			OrderTime      string `json:"order_time"`
+			ExpiryDuration int    `json:"expiry_duration"`
+			Unit           string `json:"unit"`
+		}{
+			OrderTime:      req.Expiry.StartTime,
+			ExpiryDuration: int(req.Expiry.Duration),
+			Unit:           req.Expiry.Unit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		payloadFields["custom_expiry"] = customExpiry
+	}
+
+	payload := snap.RequestParamWithMap{}
+	for key, value := range payloadFields {
+		payload[key] = value
+	}
+	return payload, nil
 }
 
 func min(a, b int) int {

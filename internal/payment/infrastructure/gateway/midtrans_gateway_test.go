@@ -24,11 +24,19 @@ func discardLog() *slog.Logger {
 
 // mockMidtransClient mengimplementasikan midtrans.HttpClient untuk test tanpa jaringan.
 type mockMidtransClient struct {
-	response interface{} // akan di-marshal ke JSON lalu unmarshal ke result
-	err      *midtrans.Error
+	response    interface{} // akan di-marshal ke JSON lalu unmarshal ke result
+	err         *midtrans.Error
+	method      string
+	url         string
+	requestBody []byte
 }
 
-func (m *mockMidtransClient) Call(_ string, _ string, _ *string, _ *midtrans.ConfigOptions, _ io.Reader, result interface{}) *midtrans.Error {
+func (m *mockMidtransClient) Call(method string, url string, _ *string, _ *midtrans.ConfigOptions, request io.Reader, result interface{}) *midtrans.Error {
+	m.method = method
+	m.url = url
+	if request != nil {
+		m.requestBody, _ = io.ReadAll(request)
+	}
 	if m.err != nil {
 		return m.err
 	}
@@ -92,7 +100,7 @@ func TestCreateSnapToken_withExpiry(t *testing.T) {
 		},
 		Expiry: &outbound.ExpiryDetails{
 			StartTime: "2026-10-30 14:34:15 +0700",
-			Unit:      "seconds",
+			Unit:      "second",
 			Duration:  600,
 		},
 	}
@@ -100,6 +108,28 @@ func TestCreateSnapToken_withExpiry(t *testing.T) {
 	result, err := gw.CreateSnapToken(context.Background(), req)
 	require.NoError(t, err)
 	assert.Equal(t, "token-with-expiry", result.SnapToken)
+
+	assert.Equal(t, "POST", mock.method)
+	assert.Contains(t, mock.url, "/snap/v1/transactions")
+	var payload struct {
+		Expiry struct {
+			StartTime string `json:"start_time"`
+			Unit      string `json:"unit"`
+			Duration  int64  `json:"duration"`
+		} `json:"expiry"`
+		CustomExpiry struct {
+			OrderTime      string `json:"order_time"`
+			ExpiryDuration int64  `json:"expiry_duration"`
+			Unit           string `json:"unit"`
+		} `json:"custom_expiry"`
+	}
+	require.NoError(t, json.Unmarshal(mock.requestBody, &payload))
+	assert.Equal(t, req.Expiry.StartTime, payload.Expiry.StartTime)
+	assert.Equal(t, req.Expiry.Unit, payload.Expiry.Unit)
+	assert.Equal(t, int64(req.Expiry.Duration), payload.Expiry.Duration)
+	assert.Equal(t, payload.Expiry.StartTime, payload.CustomExpiry.OrderTime)
+	assert.Equal(t, payload.Expiry.Unit, payload.CustomExpiry.Unit)
+	assert.Equal(t, payload.Expiry.Duration, payload.CustomExpiry.ExpiryDuration)
 }
 
 func TestCreateSnapToken_itemNameTruncation(t *testing.T) {
@@ -185,6 +215,9 @@ func TestCreateSnapToken_noExpiry(t *testing.T) {
 	result, err := gw.CreateSnapToken(context.Background(), req)
 	require.NoError(t, err)
 	assert.Equal(t, "tok-noexp", result.SnapToken)
+	var payload map[string]interface{}
+	require.NoError(t, json.Unmarshal(mock.requestBody, &payload))
+	assert.NotContains(t, payload, "custom_expiry")
 }
 
 // TestNewMidtransGateway memverifikasi konstruktor production berjalan tanpa error.
@@ -205,7 +238,7 @@ func TestNewMidtransGateway_production(t *testing.T) {
 func TestCreateSnapToken_shortSnapToken(t *testing.T) {
 	mock := &mockMidtransClient{
 		response: snap.Response{
-			Token:       "tok12",     // len=5 < 8 → min(8,5)=5 covers a>=b branch
+			Token:       "tok12", // len=5 < 8 → min(8,5)=5 covers a>=b branch
 			RedirectURL: "https://mock.url/tok12",
 		},
 	}
